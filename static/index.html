@@ -19,11 +19,31 @@
 </div>
 
 <div class="card">
-  <h2>2. Style your captions</h2>
-  <p class="hint">The preview below updates live as you change these. Drag the sample caption to set where it sits on the video.</p>
+  <h2>2. Generate transcript</h2>
+  <p class="hint">This listens to the clip and writes down every word with its timing. You'll be able to review and fix it before anything gets burned in.</p>
+  <button id="transcribeBtn">Generate transcript</button>
+  <div id="status"></div>
+  <pre id="log"></pre>
+</div>
+
+<div id="transcriptCard" class="card" style="display:none">
+  <h2>3. Review the transcript</h2>
+  <p class="hint">Click any word to fix it (e.g. if it misheard something). Changes save automatically and are used for both the preview and the final burn.</p>
+  <div id="transcriptEditor" class="transcript-editor"></div>
+</div>
+
+<div id="styleCard" class="card" style="display:none">
+  <h2>4. Style your captions</h2>
+  <p class="hint">This preview is rendered the same way the final video is, so what you see here is what you'll get. Drag the caption to reposition it.</p>
   <div class="style-panel">
     <label>Font
       <select id="fontSelect"></select>
+    </label>
+    <label>Font size
+      <input id="fontSize" type="number" min="10" max="300" placeholder="auto">
+    </label>
+    <label>Letter spacing
+      <input id="letterSpacing" type="number" min="-10" max="50" step="0.5" value="0">
     </label>
     <label>Words on screen
       <input id="wordsPerGroup" type="number" min="1" max="10" value="4">
@@ -32,32 +52,27 @@
       <input id="allCaps" type="checkbox" checked>
       ALL CAPS
     </label>
-    <button id="previewBtn" type="button" class="icon-btn">↻ Refresh preview</button>
   </div>
 
-  <div id="previewWrap" class="preview-wrap" style="display:none">
+  <div id="previewWrap" class="preview-wrap">
     <div id="previewFrame" class="preview-frame">
-      <img id="previewImg" alt="video frame">
-      <div id="captionBox" class="caption-box caps">sample caption <span class="hl">text</span></div>
+      <img id="previewImg" alt="style preview">
+      <div id="dragHandle" class="drag-handle" title="Drag to reposition"></div>
+      <div id="previewLoading" class="preview-loading" style="display:none">Rendering preview...</div>
     </div>
   </div>
-  <p id="previewHint" class="hint">Choose a clip above to see a live preview here.</p>
 </div>
 
-<div class="card">
-  <h2>3. Run</h2>
-  <p class="hint">Once the clip and style above look right, run it. This transcribes the clip and burns in the captions.</p>
-  <button id="runBtn">Run</button>
-  <div id="status"></div>
-  <pre id="log"></pre>
+<div id="burnCard" class="card" style="display:none">
+  <h2>5. Burn captions in</h2>
+  <button id="burnBtn">Burn captions in</button>
 </div>
 
 <div id="resultPanel" class="card" style="display:none">
   <h2>Result</h2>
   <p id="outputPath"></p>
   <video id="preview" controls style="max-width:100%; max-height:70vh; border-radius:8px;"></video>
-  <p class="hint">Not quite right? Tweak the style above and re-render — it reuses the transcript from this run, so it's much faster than starting over.</p>
-  <button id="rerenderBtn" type="button">Re-render with new style</button>
+  <p class="hint">Not quite right? Tweak the style above and burn again — it reuses the transcript, so it's much faster than starting over.</p>
 </div>
 </div>
 

@@ -13,9 +13,9 @@ def _fmt_ass_time(seconds: float) -> str:
 
 def build_ass(
     words, width, height, words_per_group, highlight_color, text_color,
-    font_name="Arial", pos_x_frac=0.5, pos_y_frac=0.85,
+    font_name="Arial", pos_x_frac=0.5, pos_y_frac=0.85, font_size=None, letter_spacing=0,
 ) -> str:
-    font_size = max(28, int(height * 0.05))
+    font_size = font_size or max(28, int(height * 0.05))
     pos_x = int(width * pos_x_frac)
     pos_y = int(height * pos_y_frac)
 
@@ -27,7 +27,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,2,5,0,0,0,1
+Style: Default,{font_name},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,{letter_spacing},0,1,4,2,5,0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

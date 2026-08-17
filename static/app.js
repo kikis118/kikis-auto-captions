@@ -1,20 +1,29 @@
 let currentJobId = null;
 let posXFrac = 0.5;
 let posYFrac = 0.85;
+let transcriptWords = [];
+let previewLoadedForJob = null;
+let previewRequestSeq = 0;
 
-document.getElementById("runBtn").addEventListener("click", startJob);
-document.getElementById("rerenderBtn").addEventListener("click", rerenderJob);
 document.getElementById("browseBtn").addEventListener("click", browseNative);
-document.getElementById("previewBtn").addEventListener("click", loadPreview);
-document.getElementById("videoPath").addEventListener("change", loadPreview);
-document.getElementById("fontSelect").addEventListener("change", (e) => {
-  document.getElementById("captionBox").style.fontFamily = e.target.value;
-});
-document.getElementById("allCaps").addEventListener("change", (e) => {
-  document.getElementById("captionBox").classList.toggle("caps", e.target.checked);
-});
+document.getElementById("transcribeBtn").addEventListener("click", startTranscribeJob);
+document.getElementById("burnBtn").addEventListener("click", burnCaptions);
+
+document.getElementById("fontSelect").addEventListener("change", updateStylePreview);
+document.getElementById("allCaps").addEventListener("change", updateStylePreview);
+debounceOnInput("fontSize");
+debounceOnInput("letterSpacing");
+debounceOnInput("wordsPerGroup");
 
 loadFonts();
+
+function debounceOnInput(id) {
+  let timer = null;
+  document.getElementById(id).addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(updateStylePreview, 400);
+  });
+}
 
 async function loadFonts() {
   const res = await fetch("/api/fonts");
@@ -23,7 +32,6 @@ async function loadFonts() {
   select.innerHTML = data.fonts.map((f) => `<option value="${f}">${f}</option>`).join("");
   const arial = data.fonts.findIndex((f) => f.toLowerCase() === "arial");
   if (arial > -1) select.selectedIndex = arial;
-  document.getElementById("captionBox").style.fontFamily = select.value;
 }
 
 async function browseNative() {
@@ -33,52 +41,81 @@ async function browseNative() {
   try {
     const res = await fetch("/api/browse-native", { method: "POST" });
     const data = await res.json();
-    if (data.path) {
-      document.getElementById("videoPath").value = data.path;
-      loadPreview();
-    }
+    if (data.path) document.getElementById("videoPath").value = data.path;
   } finally {
     btn.disabled = false;
     btn.textContent = "Browse...";
   }
 }
 
-async function loadPreview() {
+async function startTranscribeJob() {
   const videoPath = document.getElementById("videoPath").value.trim();
   if (!videoPath) return;
 
-  const btn = document.getElementById("previewBtn");
-  btn.disabled = true;
-  btn.textContent = "Loading frame...";
-  try {
-    const res = await fetch(`/api/thumbnail?video_path=${encodeURIComponent(videoPath)}`);
-    if (!res.ok) {
-      document.getElementById("previewHint").textContent = "Couldn't load a preview frame for that file.";
-      return;
-    }
-    const blob = await res.blob();
-    document.getElementById("previewImg").src = URL.createObjectURL(blob);
-    document.getElementById("previewWrap").style.display = "block";
-    document.getElementById("previewHint").textContent = "";
-    placeCaptionBox();
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "↻ Refresh preview";
-  }
+  document.getElementById("transcribeBtn").disabled = true;
+  document.getElementById("transcriptCard").style.display = "none";
+  document.getElementById("styleCard").style.display = "none";
+  document.getElementById("burnCard").style.display = "none";
+  document.getElementById("resultPanel").style.display = "none";
+  document.getElementById("log").textContent = "";
+  document.getElementById("status").textContent = "Starting...";
+  previewLoadedForJob = null;
+
+  const res = await fetch("/api/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ video_path: videoPath }),
+  });
+  const data = await res.json();
+  setCurrentJob(data.job_id);
+  poll();
 }
 
-function placeCaptionBox() {
-  const box = document.getElementById("captionBox");
-  box.style.left = `${posXFrac * 100}%`;
-  box.style.top = `${posYFrac * 100}%`;
+function currentStylePayload() {
+  const fontSize = parseInt(document.getElementById("fontSize").value, 10);
+  const letterSpacing = parseFloat(document.getElementById("letterSpacing").value);
+  return {
+    font_name: document.getElementById("fontSelect").value || null,
+    font_size: Number.isFinite(fontSize) ? fontSize : null,
+    letter_spacing: Number.isFinite(letterSpacing) ? letterSpacing : null,
+    words_per_group: parseInt(document.getElementById("wordsPerGroup").value, 10) || null,
+    pos_x_frac: posXFrac,
+    pos_y_frac: posYFrac,
+    all_caps: document.getElementById("allCaps").checked,
+  };
+}
+
+async function updateStylePreview() {
+  if (!currentJobId) return;
+  const seq = ++previewRequestSeq;
+  document.getElementById("previewLoading").style.display = "flex";
+  const res = await fetch(`/api/jobs/${currentJobId}/style-preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(currentStylePayload()),
+  });
+  if (seq !== previewRequestSeq) return; // a newer request superseded this one
+  if (!res.ok) {
+    document.getElementById("previewLoading").textContent = "Couldn't render a preview.";
+    return;
+  }
+  const blob = await res.blob();
+  document.getElementById("previewImg").src = URL.createObjectURL(blob);
+  document.getElementById("previewLoading").style.display = "none";
+}
+
+function placeDragHandle() {
+  const handle = document.getElementById("dragHandle");
+  handle.style.left = `${posXFrac * 100}%`;
+  handle.style.top = `${posYFrac * 100}%`;
 }
 
 (function setupDrag() {
-  const box = document.getElementById("captionBox");
+  const handle = document.getElementById("dragHandle");
   const frame = document.getElementById("previewFrame");
   let dragging = false;
 
-  box.addEventListener("mousedown", (e) => {
+  handle.addEventListener("mousedown", (e) => {
     dragging = true;
     e.preventDefault();
   });
@@ -87,56 +124,66 @@ function placeCaptionBox() {
     const rect = frame.getBoundingClientRect();
     posXFrac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     posYFrac = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
-    placeCaptionBox();
+    placeDragHandle();
   });
   window.addEventListener("mouseup", () => {
+    if (!dragging) return;
     dragging = false;
+    updateStylePreview();
   });
 })();
 
-function currentStylePayload() {
-  return {
-    font_name: document.getElementById("fontSelect").value || null,
-    words_per_group: parseInt(document.getElementById("wordsPerGroup").value, 10) || null,
-    pos_x_frac: posXFrac,
-    pos_y_frac: posYFrac,
-    all_caps: document.getElementById("allCaps").checked,
-  };
-}
-
-async function startJob() {
-  const videoPath = document.getElementById("videoPath").value.trim();
-  if (!videoPath) return;
-
-  document.getElementById("runBtn").disabled = true;
-  document.getElementById("resultPanel").style.display = "none";
-  document.getElementById("log").textContent = "";
-  document.getElementById("status").textContent = "Starting...";
-
-  const res = await fetch("/api/jobs", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ video_path: videoPath, ...currentStylePayload() }),
+function renderTranscriptEditor(words) {
+  transcriptWords = words;
+  const container = document.getElementById("transcriptEditor");
+  container.innerHTML = "";
+  words.forEach((w, i) => {
+    const span = document.createElement("span");
+    span.className = "transcript-word";
+    span.contentEditable = "true";
+    span.textContent = w.word;
+    span.addEventListener("blur", () => onWordEdited(i, span));
+    span.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        span.blur();
+      }
+    });
+    container.appendChild(span);
   });
-  const data = await res.json();
-  setCurrentJob(data.job_id);
-  poll();
 }
 
-async function rerenderJob() {
-  if (!currentJobId) return;
-  const btn = document.getElementById("rerenderBtn");
-  btn.disabled = true;
-  document.getElementById("status").textContent = "Re-rendering with new style...";
+async function onWordEdited(index, span) {
+  const newText = span.textContent.trim();
+  if (!newText) {
+    span.textContent = transcriptWords[index].word;
+    return;
+  }
+  if (newText === transcriptWords[index].word) return;
+  transcriptWords[index] = { ...transcriptWords[index], word: newText };
+  span.textContent = newText;
+  await fetch(`/api/jobs/${currentJobId}/words`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ words: transcriptWords }),
+  });
+  updateStylePreview();
+}
 
-  const res = await fetch(`/api/jobs/${currentJobId}/rerender`, {
+async function burnCaptions() {
+  if (!currentJobId) return;
+  const btn = document.getElementById("burnBtn");
+  btn.disabled = true;
+  document.getElementById("status").textContent = "Burning captions in...";
+
+  const res = await fetch(`/api/jobs/${currentJobId}/render`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(currentStylePayload()),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    document.getElementById("status").textContent = `Re-render failed: ${err.detail || res.statusText}`;
+    document.getElementById("status").textContent = `Failed to start: ${err.detail || res.statusText}`;
     btn.disabled = false;
     return;
   }
@@ -169,11 +216,27 @@ function fmtTime(sec) {
   return (h ? h + "h" : "") + String(m).padStart(2, "0") + "m" + String(s).padStart(2, "0") + "s";
 }
 
+async function revealPostTranscriptCards() {
+  document.getElementById("transcriptCard").style.display = "block";
+  document.getElementById("styleCard").style.display = "block";
+  document.getElementById("burnCard").style.display = "block";
+  if (previewLoadedForJob === currentJobId) return;
+  previewLoadedForJob = currentJobId;
+
+  const res = await fetch(`/api/jobs/${currentJobId}/words`);
+  if (res.ok) {
+    const data = await res.json();
+    renderTranscriptEditor(data.words);
+  }
+  placeDragHandle();
+  updateStylePreview();
+}
+
 async function poll() {
   const res = await fetch(`/api/jobs/${currentJobId}`);
   if (!res.ok) {
     document.getElementById("status").textContent = "No such job (it may have been cleared by a server restart).";
-    document.getElementById("runBtn").disabled = false;
+    document.getElementById("transcribeBtn").disabled = false;
     localStorage.removeItem("lastJobId");
     return;
   }
@@ -183,15 +246,23 @@ async function poll() {
   document.getElementById("log").textContent = job.log.join("\n");
   document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
 
+  if (job.status === "transcript_ready") {
+    document.getElementById("transcribeBtn").disabled = false;
+    document.getElementById("burnBtn").disabled = false;
+    revealPostTranscriptCards();
+    return;
+  }
   if (job.status === "done") {
-    document.getElementById("runBtn").disabled = false;
-    document.getElementById("rerenderBtn").disabled = false;
+    document.getElementById("transcribeBtn").disabled = false;
+    document.getElementById("burnBtn").disabled = false;
+    document.getElementById("burnBtn").textContent = "Re-render with new style";
+    revealPostTranscriptCards();
     showResult(job.result);
     return;
   }
   if (job.status === "error") {
-    document.getElementById("runBtn").disabled = false;
-    document.getElementById("rerenderBtn").disabled = false;
+    document.getElementById("transcribeBtn").disabled = false;
+    document.getElementById("burnBtn").disabled = false;
     document.getElementById("status").textContent = `Error: ${job.error}`;
     return;
   }

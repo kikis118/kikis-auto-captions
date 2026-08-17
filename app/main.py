@@ -7,9 +7,9 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import video_probe
+from . import pipeline
 from .config import settings
-from .jobs import create_job, get_elapsed_seconds, get_job, rerender_job
+from .jobs import create_job, get_elapsed_seconds, get_job, render_job
 
 app = FastAPI(title="Kikis Auto Captions")
 
@@ -58,28 +58,22 @@ def _list_fonts() -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
-def _resolve_video_path(raw: str) -> Path:
-    p = Path(raw.strip().strip('"'))
-    if not p.exists() or not p.is_file():
-        raise HTTPException(404, "file not found")
-    return p
-
-
 class JobRequest(BaseModel):
     video_path: str
+
+
+class RenderRequest(BaseModel):
     font_name: str | None = None
+    font_size: int | None = None
+    letter_spacing: float | None = None
     words_per_group: int | None = None
     pos_x_frac: float | None = None
     pos_y_frac: float | None = None
     all_caps: bool | None = None
 
 
-class RerenderRequest(BaseModel):
-    font_name: str | None = None
-    words_per_group: int | None = None
-    pos_x_frac: float | None = None
-    pos_y_frac: float | None = None
-    all_caps: bool | None = None
+class WordsRequest(BaseModel):
+    words: list[dict]
 
 
 @app.post("/api/browse-native")
@@ -96,34 +90,51 @@ async def api_fonts():
     return {"fonts": _fonts_cache}
 
 
-@app.get("/api/thumbnail")
-def api_thumbnail(video_path: str):
-    p = _resolve_video_path(video_path)
-    duration, _, _ = video_probe.probe(p)
-    args = [
-        str(settings.ffmpeg_path), "-ss", str(duration / 2 if duration else 0), "-i", str(p),
-        "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "3", "pipe:1",
-    ]
-    proc = subprocess.run(args, capture_output=True)
-    if proc.returncode != 0 or not proc.stdout:
-        raise HTTPException(500, "failed to extract thumbnail")
-    return Response(content=proc.stdout, media_type="image/jpeg")
-
-
 @app.post("/api/jobs")
 def api_create_job(req: JobRequest):
-    job_id = create_job(
-        req.video_path, req.font_name, req.words_per_group, req.pos_x_frac, req.pos_y_frac, req.all_caps
-    )
+    job_id = create_job(req.video_path)
     return {"job_id": job_id}
 
 
-@app.post("/api/jobs/{job_id}/rerender")
-def api_rerender_job(job_id: str, req: RerenderRequest):
-    ok = rerender_job(job_id, req.font_name, req.words_per_group, req.pos_x_frac, req.pos_y_frac, req.all_caps)
-    if not ok:
-        raise HTTPException(400, "job not found, or still running")
+@app.get("/api/jobs/{job_id}/words")
+def api_get_words(job_id: str):
+    try:
+        cache = pipeline.load_cache(job_id)
+    except RuntimeError as e:
+        raise HTTPException(404, str(e))
+    return {"words": cache["words"]}
+
+
+@app.put("/api/jobs/{job_id}/words")
+def api_save_words(job_id: str, req: WordsRequest):
+    try:
+        pipeline.save_words(job_id, req.words)
+    except RuntimeError as e:
+        raise HTTPException(404, str(e))
     return {"ok": True}
+
+
+@app.post("/api/jobs/{job_id}/render")
+def api_render_job(job_id: str, req: RenderRequest):
+    ok = render_job(
+        job_id, req.font_name, req.font_size, req.letter_spacing, req.words_per_group,
+        req.pos_x_frac, req.pos_y_frac, req.all_caps,
+    )
+    if not ok:
+        raise HTTPException(400, "job not found, has no transcript yet, or is still running")
+    return {"ok": True}
+
+
+@app.post("/api/jobs/{job_id}/style-preview")
+async def api_style_preview(job_id: str, req: RenderRequest):
+    try:
+        jpeg = await run_in_threadpool(
+            pipeline.generate_style_preview, job_id, req.font_name, req.font_size, req.letter_spacing,
+            req.words_per_group, req.pos_x_frac, req.pos_y_frac, req.all_caps,
+        )
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+    return Response(content=jpeg, media_type="image/jpeg")
 
 
 @app.get("/api/jobs/{job_id}")

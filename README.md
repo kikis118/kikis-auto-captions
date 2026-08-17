@@ -19,6 +19,12 @@ Burns in word-by-word highlighted captions onto a video clip — the rolling "3-
 
 No Gemini, no Claude, no API keys, no billing, no account of any kind — everything here runs locally.
 
+## Get the code
+
+If you're reading this on GitHub: click the green **Code** button near the top of the repo page → **Download ZIP** → extract it anywhere on your PC (e.g. your Desktop). That folder is what the rest of these instructions call "this folder."
+
+(If you're comfortable with git instead: `git clone` the repo URL and use that folder.)
+
 ## One-time setup
 
 Open a terminal (PowerShell or Command Prompt) in this folder, then run:
@@ -39,20 +45,19 @@ That's the only setting you need to change. Everything else in `.env` is optiona
 
 ## Running it
 
-- Double-click the **Kikis Auto Captions** desktop shortcut (if one was set up for you), or
-- Open a terminal in this folder and run:
-  ```bash
-  .venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001
-  ```
-  then open `http://localhost:8001` in your browser.
+Double-click **`start.bat`** in this folder. That's it — it starts the app and opens it in your browser at `http://localhost:8001`.
+
+(You only need the manual command below if `start.bat` doesn't work for some reason: `.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001`, then open `http://localhost:8001` yourself.)
 
 ## Using it
 
 1. **Choose your clip** — click **Browse...** to open the normal Windows file picker and select your video.
-2. **Style your captions** — a live preview of a real frame from your video appears. Pick a font, choose how many words show on screen at once, toggle **ALL CAPS** on or off, and drag the sample caption to wherever you want it to sit. Everything updates live before you commit to anything.
-3. **Run** — once it looks right, click **Run**. It transcribes the audio and burns the captions in, with progress shown in the log.
-4. **Check the result** — the finished video plays right there, with its file location shown underneath.
-5. **Not quite right?** Change the font, caps, word count, or drag the position again, then click **Re-render with new style**. This reuses the transcript from the run you just did, so it's fast — it doesn't need to re-listen to the whole clip.
+2. **Generate transcript** — click it and wait; it listens to the clip and writes down every word with its timing. This is the one step that takes real time (longer without an NVIDIA GPU).
+3. **Review the transcript** — every word appears editable. Click any word Whisper misheard and fix it — it saves automatically.
+4. **Style your captions** — pick a font, size, letter spacing, how many words show on screen, ALL CAPS on/off, and drag the caption to where you want it. The preview here is rendered by the exact same engine as the final video, so it's not an approximation — what you see is what you'll get.
+5. **Burn captions in** — click it. The finished video plays right there when it's done, with its file location shown underneath.
+
+Not quite right? Change anything in step 3 or 4 and click **Re-render with new style** — it reuses the transcript, so it's fast and doesn't re-listen to the clip.
 
 Everything stays on your PC — no files, audio, or text are ever sent anywhere. The finished video (and a working folder for that job) is saved under `data/<job-id>/`.
 
@@ -61,13 +66,13 @@ Everything stays on your PC — no files, audio, or text are ever sent anywhere.
 | File | Responsibility |
 |---|---|
 | `app/main.py` | FastAPI app, HTTP endpoints |
-| `app/jobs.py` | In-memory job tracking; background thread per run + 30s heartbeat; also handles fast "re-render" jobs that reuse a cached transcript |
-| `app/pipeline.py` | Orchestrates a fresh run: probe → transcribe → cache transcript to `words.json` → build captions → burn in. Re-render skips straight to build → burn using that cached transcript |
-| `app/video_probe.py` | Reads the source video's resolution/duration via `ffmpeg -i` |
+| `app/jobs.py` | In-memory job tracking; separate background-thread paths for transcription vs. render, each with a 30s heartbeat |
+| `app/pipeline.py` | `transcribe_pipeline` (probe → transcribe → cache `words.json` → extract a preview frame) and `render_pipeline` (load cached words → build captions → burn in) are separate stages, so restyling never re-transcribes. `generate_style_preview` builds a tiny sample `.ass` from the real cached transcript and burns it onto the cached preview frame — the exact same code path as the real burn, just on one still image |
+| `app/video_probe.py` | Reads resolution/duration via `ffmpeg -i`; extracts a representative still frame for previews |
 | `app/caption_words.py` | `faster-whisper` with `word_timestamps=True` — GPU by default with automatic CPU fallback (CUDA DLLs come from the `nvidia-cublas-cu12`/`nvidia-cudnn-cu12` pip packages, no system CUDA install needed) |
-| `app/ass_builder.py` | Builds an `.ass` subtitle file: words chunked into rolling groups, one `Dialogue` line per word with an inline color-override tag marking the currently-spoken word, positioned via an explicit `\pos()` tag |
-| `app/burn.py` | Runs ffmpeg's `subtitles` filter to hard-burn the `.ass` onto the source video |
+| `app/ass_builder.py` | Builds an `.ass` subtitle file: words chunked into rolling groups, one `Dialogue` line per word with an inline color-override tag marking the currently-spoken word, positioned via an explicit `\pos()` tag, with font size and letter spacing as Style-level overrides |
+| `app/burn.py` | `burn_captions` hard-burns the `.ass` onto the full source video; `burn_preview_frame` does the same onto a single still image, for the style preview |
 | `app/config.py` | Settings, overridable via `.env` |
 | `app/utils.py` | Time formatting helper |
 
-Each job's working files (probed video info, cached transcript, generated `.ass`, final captioned `.mp4`) live under `data/<job_id>/`.
+Each job's working files (probed video info, cached transcript, preview frame, generated `.ass`, final captioned `.mp4`) live under `data/<job_id>/`.

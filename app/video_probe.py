@@ -27,3 +27,14 @@ def probe(video_path: Path):
         width, height = int(m.group(1)), int(m.group(2))
 
     return duration, width, height
+
+
+def extract_thumbnail(video_path: Path, out_path: Path, duration: float) -> None:
+    mid = duration / 2 if duration else 0
+    args = [
+        str(settings.ffmpeg_path), "-y", "-ss", str(mid), "-i", str(video_path),
+        "-frames:v", "1", str(out_path),
+    ]
+    proc = subprocess.run(args, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"Failed to extract preview frame: {proc.stderr[-2000:]}")

@@ -23,12 +23,30 @@ The word-highlight effect in `app/ass_builder.py` works by emitting one `Dialogu
 
 Position is also an override tag, not a Style-level default: every line carries an explicit `{\an5\pos(x,y)}` computed from `pos_x_frac`/`pos_y_frac` × the real video resolution. The Style block's own Alignment/Margin fields are just a fallback and are effectively unused once `\pos` is present — don't try to reposition captions by editing the Style line, it won't do anything.
 
-## Words are cached per job — transcription and rendering are separate stages
+## Job lifecycle is two distinct phases, not one pipeline
 
-`app/pipeline.py` has three entry points: `run_pipeline` (fresh run: probe → transcribe → cache `words.json` in the job dir → render), `render_captions` (build `.ass` + burn, shared by both paths), and `rerender_pipeline` (loads the cached `words.json`, skips transcription entirely, re-renders with new style params). This exists specifically so style tweaks (font, caps, word count, position) after a run don't re-pay the GPU transcription cost — `jobs.rerender_job` reuses the *same* `job_id` and overwrites the *same* output file, so the frontend just needs a cache-busting query param on the `<video>` src to see the new render.
+A job now has two independent background-thread phases, each with its own heartbeat:
+1. `jobs.create_job` → `pipeline.transcribe_pipeline` — probe, transcribe, cache `words.json`, extract a preview still frame (`thumbnail.jpg`). Terminal status: `transcript_ready` (or `error`).
+2. `jobs.render_job` → `pipeline.render_pipeline` — load cached `words.json`, build `.ass`, burn onto the full video. Terminal status: `done` (or `error`).
 
-If you change what gets cached in `words.json` (currently `video_path`, `width`, `height`, `duration`, `words`), remember `rerender_pipeline` reads that same schema back — keep them in sync, there's no migration path for old cache files (they're per-job scratch data under `data/<job_id>/`, safe to just discard if the schema changes).
+`render_job` can be called any number of times against the same `job_id` (guarded to only run when status is `transcript_ready`, `done`, or `error`) — it always reads whatever's currently in `words.json` and overwrites the same output file, so restyling or re-burning after a transcript edit never re-pays GPU transcription. The frontend cache-busts the `<video>` src with a timestamp query param to see each new render.
+
+If you change the `words.json` schema (currently `video_path`, `width`, `height`, `duration`, `words`), every reader of it (`render_pipeline`, `generate_style_preview`, the `/words` GET/PUT endpoints) needs to agree — there's no migration path, cache files are per-job scratch data under `data/<job_id>/` and safe to discard.
+
+## Style preview is not an approximation — it's the real renderer on one frame
+
+`pipeline.generate_style_preview` takes the first `words_per_group` words from the **real cached transcript** (not placeholder text), builds a real `.ass` via the same `ass_builder.build_ass` used for the actual burn, and runs it through `burn.burn_preview_frame` (same `ffmpeg subtitles` filter, just `-loop 1` on a still image instead of the full video). This was a deliberate fix for a prior CSS-approximation preview that didn't visually match the final output — don't reintroduce a CSS-based preview; if the preview and the real burn ever look different, that's a bug in this shared code path, not two things to keep in sync by hand.
+
+The preview frame itself (`thumbnail.jpg`) is extracted once during `transcribe_pipeline` and reused for every subsequent style-preview call — don't re-extract it per request, that's an unnecessary full video seek+decode on every keystroke/drag.
+
+## Transcript editing is per-word, not free-form
+
+The frontend renders each cached word as an individually `contenteditable` span (`static/app.js` `renderTranscriptEditor`) and PUTs the *entire* words array back to `/api/jobs/{id}/words` on blur — only `word` text changes, `start`/`end` stay fixed to what Whisper produced. This was an intentional scope limit: fixing mis-transcribed words is supported, splitting/merging words or re-timing them is not. Don't build free-form textarea editing on top of this without re-deriving per-word timestamps, which is a much harder problem (word-level alignment).
+
+## Font size / letter spacing are Style-level ASS fields
+
+`ass_builder.build_ass` takes `font_size` (falls back to `max(28, height*0.05)` if `None` — that's the "auto" the UI shows) and `letter_spacing` (ASS `Spacing` field, default 0). Both apply uniformly to the whole style, not per-run overrides — there's no per-word size/spacing variation.
 
 ## ALL CAPS defaults on
 
-`settings.all_caps` (env `ALL_CAPS`) defaults to `true` — this was an explicit user preference, not an oversight. Uppercasing happens in `pipeline.render_captions` right before building the `.ass` (on a copy of the word list, not in the cached `words.json`), so toggling it doesn't require re-transcription either.
+`settings.all_caps` (env `ALL_CAPS`) defaults to `true` — this was an explicit user preference, not an oversight. Uppercasing happens in `pipeline.render_pipeline`/`generate_style_preview` right before building the `.ass` (on a copy of the word list, not in the cached `words.json`), so toggling it doesn't require re-transcription either.
