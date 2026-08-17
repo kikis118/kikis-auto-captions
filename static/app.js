@@ -1,6 +1,75 @@
 let currentJobId = null;
+let browsePath = "";
 
 document.getElementById("runBtn").addEventListener("click", startJob);
+document.getElementById("browseBtn").addEventListener("click", () => openBrowser());
+document.getElementById("browseCloseBtn").addEventListener("click", closeBrowser);
+document.getElementById("browseModal").addEventListener("click", (e) => {
+  if (e.target.id === "browseModal") closeBrowser();
+});
+
+function joinPath(base, name) {
+  if (base.endsWith("\\") || base.endsWith("/")) return base + name;
+  return base + "\\" + name;
+}
+
+async function openBrowser() {
+  const existing = document.getElementById("videoPath").value.trim();
+  let startPath = "";
+  if (existing) {
+    const idx = Math.max(existing.lastIndexOf("\\"), existing.lastIndexOf("/"));
+    if (idx > -1) startPath = existing.slice(0, idx + 1);
+  }
+  document.getElementById("browseModal").style.display = "flex";
+  await browseTo(startPath);
+}
+
+function closeBrowser() {
+  document.getElementById("browseModal").style.display = "none";
+}
+
+async function browseTo(path) {
+  const res = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
+  if (!res.ok) return;
+  const data = await res.json();
+  browsePath = data.path;
+  document.getElementById("browsePath").textContent = data.path || "This PC";
+
+  const rows = [];
+  if (data.parent !== null) {
+    rows.push(`<div class="browse-item browse-up" data-path="${escapeAttr(data.parent)}">.. (up)</div>`);
+  } else if (data.path) {
+    rows.push(`<div class="browse-item browse-up" data-path="">.. (up)</div>`);
+  }
+  for (const d of data.dirs) {
+    const full = data.path ? joinPath(data.path, d) : d;
+    rows.push(`<div class="browse-item browse-dir" data-path="${escapeAttr(full)}">📁 ${escapeHtml(d)}</div>`);
+  }
+  for (const f of data.files) {
+    const full = joinPath(data.path, f);
+    rows.push(`<div class="browse-item browse-file" data-file="${escapeAttr(full)}">🎬 ${escapeHtml(f)}</div>`);
+  }
+  document.getElementById("browseList").innerHTML = rows.length
+    ? rows.join("")
+    : `<div class="browse-empty">No folders or video files here.</div>`;
+
+  document.querySelectorAll(".browse-dir, .browse-up").forEach((el) => {
+    el.addEventListener("click", () => browseTo(el.dataset.path));
+  });
+  document.querySelectorAll(".browse-file").forEach((el) => {
+    el.addEventListener("click", () => {
+      document.getElementById("videoPath").value = el.dataset.file;
+      closeBrowser();
+    });
+  });
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function escapeAttr(s) {
+  return escapeHtml(s);
+}
 
 async function startJob() {
   const videoPath = document.getElementById("videoPath").value.trim();

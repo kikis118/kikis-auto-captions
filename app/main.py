@@ -1,3 +1,5 @@
+import os
+import string
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -11,9 +13,40 @@ app = FastAPI(title="Kikis Auto Captions")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".flv", ".wmv"}
+
 
 class JobRequest(BaseModel):
     video_path: str
+
+
+def _list_drives() -> list[str]:
+    if os.name != "nt":
+        return ["/"]
+    return [f"{letter}:\\" for letter in string.ascii_uppercase if os.path.exists(f"{letter}:\\")]
+
+
+@app.get("/api/browse")
+def api_browse(path: str = ""):
+    if not path:
+        return {"path": "", "parent": None, "dirs": _list_drives(), "files": []}
+
+    p = Path(path)
+    if not p.exists() or not p.is_dir():
+        raise HTTPException(400, "not a valid directory")
+
+    try:
+        entries = list(p.iterdir())
+    except PermissionError:
+        raise HTTPException(403, "permission denied")
+
+    dirs = sorted((e.name for e in entries if e.is_dir() and not e.name.startswith(".")), key=str.lower)
+    files = sorted(
+        (e.name for e in entries if e.is_file() and e.suffix.lower() in VIDEO_EXTENSIONS),
+        key=str.lower,
+    )
+    parent = None if p.parent == p else str(p.parent)
+    return {"path": str(p), "parent": parent, "dirs": dirs, "files": files}
 
 
 @app.post("/api/jobs")
