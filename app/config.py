@@ -26,6 +26,10 @@ class Settings:
     # ASS \c override tag values (BGR hex, no alpha)
     highlight_color = os.getenv("HIGHLIGHT_COLOR", "&H00FFFF&")  # yellow
     text_color = os.getenv("TEXT_COLOR", "&HFFFFFF&")  # white
+    # ASS Style-line color field (opaque AABBGGRR)
+    outline_color = os.getenv("OUTLINE_COLOR", "&H00000000")  # black
+    outline_width = int(os.getenv("OUTLINE_WIDTH", "4"))
+    bold = os.getenv("BOLD", "true").lower() in ("1", "true", "yes")
 
 
 settings = Settings()

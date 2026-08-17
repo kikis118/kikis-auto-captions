@@ -34,22 +34,14 @@ def create_job(video_path: str) -> str:
     return job_id
 
 
-def render_job(
-    job_id: str, font_name: str | None = None, font_size: int | None = None, letter_spacing: float | None = None,
-    words_per_group: int | None = None, pos_x_frac: float | None = None, pos_y_frac: float | None = None,
-    all_caps: bool | None = None,
-) -> bool:
+def render_job(job_id: str, **style_overrides) -> bool:
     job = JOBS.get(job_id)
     if not job or job["status"] not in _RENDERABLE_STATES:
         return False
     job["status"] = "rendering"
     job["error"] = None
     job["_started_monotonic"] = time.monotonic()
-    threading.Thread(
-        target=_run_render,
-        args=(job_id, font_name, font_size, letter_spacing, words_per_group, pos_x_frac, pos_y_frac, all_caps),
-        daemon=True,
-    ).start()
+    threading.Thread(target=_run_render, args=(job_id,), kwargs=style_overrides, daemon=True).start()
     threading.Thread(target=_heartbeat, args=(job_id,), daemon=True).start()
     return True
 
@@ -73,7 +65,7 @@ def _run_transcribe(job_id: str) -> None:
         log(f"ERROR: {e}\n{traceback.format_exc()}")
 
 
-def _run_render(job_id: str, font_name, font_size, letter_spacing, words_per_group, pos_x_frac, pos_y_frac, all_caps) -> None:
+def _run_render(job_id: str, **style_overrides) -> None:
     job = JOBS[job_id]
 
     def log(msg: str):
@@ -84,10 +76,7 @@ def _run_render(job_id: str, font_name, font_size, letter_spacing, words_per_gro
         job["status"] = status
 
     try:
-        job["result"] = render_pipeline(
-            job_id, log, set_progress, font_name, font_size, letter_spacing, words_per_group,
-            pos_x_frac, pos_y_frac, all_caps,
-        )
+        job["result"] = render_pipeline(job_id, log, set_progress, **style_overrides)
         job["status"] = "done"
     except Exception as e:
         job["error"] = str(e)

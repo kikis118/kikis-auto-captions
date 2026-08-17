@@ -63,34 +63,50 @@ def transcribe_pipeline(job_id: str, video_path_str: str, log, set_progress):
     return {"word_count": len(words), "duration": duration}
 
 
-def render_pipeline(
-    job_id: str, log, set_progress,
-    font_name: str | None = None, font_size: int | None = None, letter_spacing: float | None = None,
-    words_per_group: int | None = None,
-    pos_x_frac: float | None = None, pos_y_frac: float | None = None, all_caps: bool | None = None,
-):
+def _resolve_style(
+    font_name=None, font_size=None, letter_spacing=None, words_per_group=None,
+    pos_x_frac=None, pos_y_frac=None, all_caps=None,
+    highlight_color=None, text_color=None, outline_color=None, outline_width=None, bold=None,
+) -> dict:
+    """Turns request-level overrides (None = use the .env default) into concrete
+    ass_builder.build_ass kwargs, including hex (#RRGGBB) -> ASS color conversion."""
+    return {
+        "font_name": font_name or "Arial",
+        "font_size": font_size,
+        "letter_spacing": letter_spacing or 0,
+        "words_per_group": words_per_group or settings.words_per_group,
+        "pos_x_frac": 0.5 if pos_x_frac is None else pos_x_frac,
+        "pos_y_frac": 0.85 if pos_y_frac is None else pos_y_frac,
+        "all_caps": settings.all_caps if all_caps is None else all_caps,
+        "highlight_color": ass_builder.hex_to_tag_color(highlight_color) if highlight_color else settings.highlight_color,
+        "text_color": ass_builder.hex_to_tag_color(text_color) if text_color else settings.text_color,
+        "outline_color": ass_builder.hex_to_style_color(outline_color) if outline_color else settings.outline_color,
+        "outline_width": settings.outline_width if outline_width is None else outline_width,
+        "bold": settings.bold if bold is None else bold,
+    }
+
+
+def render_pipeline(job_id: str, log, set_progress, **style_overrides):
     job_dir = settings.data_dir / job_id
     cache = load_cache(job_id)
     video_path = Path(cache["video_path"])
     if not video_path.exists():
         raise FileNotFoundError(f"Source file no longer exists: {video_path}")
 
-    font_name = font_name or "Arial"
-    words_per_group = words_per_group or settings.words_per_group
-    pos_x_frac = 0.5 if pos_x_frac is None else pos_x_frac
-    pos_y_frac = 0.85 if pos_y_frac is None else pos_y_frac
-    all_caps = settings.all_caps if all_caps is None else all_caps
+    style = _resolve_style(**style_overrides)
 
     words = cache["words"]
     set_progress("building_captions")
-    render_words = [{**w, "word": w["word"].upper()} for w in words] if all_caps else words
+    render_words = [{**w, "word": w["word"].upper()} for w in words] if style["all_caps"] else words
     ass_content = ass_builder.build_ass(
-        render_words, cache["width"], cache["height"], words_per_group, settings.highlight_color, settings.text_color,
-        font_name, pos_x_frac, pos_y_frac, font_size, letter_spacing or 0, settings.max_group_gap,
+        render_words, cache["width"], cache["height"], style["words_per_group"],
+        style["highlight_color"], style["text_color"], style["font_name"], style["pos_x_frac"], style["pos_y_frac"],
+        style["font_size"], style["letter_spacing"], settings.max_group_gap,
+        style["outline_color"], style["outline_width"], style["bold"],
     )
     ass_path = job_dir / "captions.ass"
     ass_path.write_text(ass_content, encoding="utf-8")
-    log(f"Wrote {ass_path.name} ({len(words)} words, groups of {words_per_group}, font {font_name}, caps={all_caps})")
+    log(f"Wrote {ass_path.name} ({len(words)} words, groups of {style['words_per_group']}, font {style['font_name']}, caps={style['all_caps']})")
 
     set_progress("burning_in")
     out_path = job_dir / f"{video_path.stem}_captioned.mp4"
@@ -99,32 +115,25 @@ def render_pipeline(
     return {"output_path": str(out_path), "word_count": len(words), "duration": cache["duration"]}
 
 
-def generate_style_preview(
-    job_id: str,
-    font_name: str | None = None, font_size: int | None = None, letter_spacing: float | None = None,
-    words_per_group: int | None = None,
-    pos_x_frac: float | None = None, pos_y_frac: float | None = None, all_caps: bool | None = None,
-) -> bytes:
+def generate_style_preview(job_id: str, **style_overrides) -> bytes:
     job_dir = settings.data_dir / job_id
     frame_path = thumbnail_path(job_dir)
     if not frame_path.exists():
         raise RuntimeError("No preview frame for this job yet - generate a transcript first")
 
     cache = load_cache(job_id)
-    words_per_group = words_per_group or settings.words_per_group
-    sample = cache["words"][:words_per_group] if cache["words"] else _SAMPLE_WORDS[:words_per_group]
+    style = _resolve_style(**style_overrides)
+
+    sample = cache["words"][:style["words_per_group"]] if cache["words"] else _SAMPLE_WORDS[:style["words_per_group"]]
     offset = sample[0]["start"]
     sample = [{"word": w["word"], "start": w["start"] - offset, "end": w["end"] - offset} for w in sample]
-
-    font_name = font_name or "Arial"
-    pos_x_frac = 0.5 if pos_x_frac is None else pos_x_frac
-    pos_y_frac = 0.85 if pos_y_frac is None else pos_y_frac
-    all_caps = settings.all_caps if all_caps is None else all_caps
-    render_sample = [{**w, "word": w["word"].upper()} for w in sample] if all_caps else sample
+    render_sample = [{**w, "word": w["word"].upper()} for w in sample] if style["all_caps"] else sample
 
     ass_content = ass_builder.build_ass(
-        render_sample, cache["width"], cache["height"], words_per_group, settings.highlight_color, settings.text_color,
-        font_name, pos_x_frac, pos_y_frac, font_size, letter_spacing or 0, settings.max_group_gap,
+        render_sample, cache["width"], cache["height"], style["words_per_group"],
+        style["highlight_color"], style["text_color"], style["font_name"], style["pos_x_frac"], style["pos_y_frac"],
+        style["font_size"], style["letter_spacing"], settings.max_group_gap,
+        style["outline_color"], style["outline_width"], style["bold"],
     )
     ass_path = job_dir / "preview.ass"
     ass_path.write_text(ass_content, encoding="utf-8")

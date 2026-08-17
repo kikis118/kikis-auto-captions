@@ -70,6 +70,11 @@ class RenderRequest(BaseModel):
     pos_x_frac: float | None = None
     pos_y_frac: float | None = None
     all_caps: bool | None = None
+    highlight_color: str | None = None
+    text_color: str | None = None
+    outline_color: str | None = None
+    outline_width: int | None = None
+    bold: bool | None = None
 
 
 class WordsRequest(BaseModel):
@@ -116,10 +121,7 @@ def api_save_words(job_id: str, req: WordsRequest):
 
 @app.post("/api/jobs/{job_id}/render")
 def api_render_job(job_id: str, req: RenderRequest):
-    ok = render_job(
-        job_id, req.font_name, req.font_size, req.letter_spacing, req.words_per_group,
-        req.pos_x_frac, req.pos_y_frac, req.all_caps,
-    )
+    ok = render_job(job_id, **req.model_dump())
     if not ok:
         raise HTTPException(400, "job not found, has no transcript yet, or is still running")
     return {"ok": True}
@@ -128,10 +130,7 @@ def api_render_job(job_id: str, req: RenderRequest):
 @app.post("/api/jobs/{job_id}/style-preview")
 async def api_style_preview(job_id: str, req: RenderRequest):
     try:
-        jpeg = await run_in_threadpool(
-            pipeline.generate_style_preview, job_id, req.font_name, req.font_size, req.letter_spacing,
-            req.words_per_group, req.pos_x_frac, req.pos_y_frac, req.all_caps,
-        )
+        jpeg = await run_in_threadpool(pipeline.generate_style_preview, job_id, **req.model_dump())
     except RuntimeError as e:
         raise HTTPException(400, str(e))
     return Response(content=jpeg, media_type="image/jpeg")

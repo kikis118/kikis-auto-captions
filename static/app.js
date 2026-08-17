@@ -11,9 +11,14 @@ document.getElementById("burnBtn").addEventListener("click", burnCaptions);
 
 document.getElementById("fontSelect").addEventListener("change", updateStylePreview);
 document.getElementById("allCaps").addEventListener("change", updateStylePreview);
+document.getElementById("boldToggle").addEventListener("change", updateStylePreview);
 debounceOnInput("fontSize");
 debounceOnInput("letterSpacing");
 debounceOnInput("wordsPerGroup");
+debounceOnInput("outlineWidth");
+debounceOnInput("highlightColor");
+debounceOnInput("textColor");
+debounceOnInput("outlineColor");
 
 loadFonts();
 
@@ -74,6 +79,7 @@ async function startTranscribeJob() {
 function currentStylePayload() {
   const fontSize = parseInt(document.getElementById("fontSize").value, 10);
   const letterSpacing = parseFloat(document.getElementById("letterSpacing").value);
+  const outlineWidth = parseInt(document.getElementById("outlineWidth").value, 10);
   return {
     font_name: document.getElementById("fontSelect").value || null,
     font_size: Number.isFinite(fontSize) ? fontSize : null,
@@ -82,6 +88,11 @@ function currentStylePayload() {
     pos_x_frac: posXFrac,
     pos_y_frac: posYFrac,
     all_caps: document.getElementById("allCaps").checked,
+    bold: document.getElementById("boldToggle").checked,
+    highlight_color: document.getElementById("highlightColor").value,
+    text_color: document.getElementById("textColor").value,
+    outline_color: document.getElementById("outlineColor").value,
+    outline_width: Number.isFinite(outlineWidth) ? outlineWidth : null,
   };
 }
 
