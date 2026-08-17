@@ -6,21 +6,25 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div class="page">
 <h1>Kikis Auto Captions</h1>
-<p class="hint">Paste the full local path to your exported clip (e.g. from Premiere). Word-by-word highlighted captions get burned in and saved next to a preview here.</p>
 
-<div class="run-panel">
-  <input id="videoPath" type="text" placeholder="C:\path\to\your\clip.mp4">
-  <button id="runBtn">Run</button>
+<div class="card">
+  <p class="hint">Paste the full local path to your exported clip (e.g. from Premiere). Word-by-word highlighted captions get burned in and saved next to a preview here.</p>
+  <div class="run-panel">
+    <input id="videoPath" type="text" placeholder="C:\path\to\your\clip.mp4">
+    <button id="runBtn">Run</button>
+  </div>
 </div>
 
 <div id="status"></div>
 <pre id="log"></pre>
 
-<div id="resultPanel" style="display:none">
+<div id="resultPanel" class="card" style="display:none">
   <h2>Result</h2>
   <p id="outputPath"></p>
-  <video id="preview" controls style="max-width:100%; max-height:70vh;"></video>
+  <video id="preview" controls style="max-width:100%; max-height:70vh; border-radius:8px;"></video>
+</div>
 </div>
 
 <script src="app.js"></script>
