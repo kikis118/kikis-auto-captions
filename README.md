@@ -1,6 +1,6 @@
 # Kikis Auto Captions
 
-Burns in word-by-word highlighted captions onto a video clip — the rolling "3-4 words on screen, one highlighted as it's spoken" TikTok/CapCut style — running entirely on your own PC.
+Burns in word-by-word highlighted captions onto a video clip - mostly for shorts
 
 ## What this does
 
