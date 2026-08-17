@@ -20,6 +20,9 @@ class Settings:
 
     words_per_group = int(os.getenv("WORDS_PER_GROUP", "4"))
     all_caps = os.getenv("ALL_CAPS", "true").lower() in ("1", "true", "yes")
+    # a speech pause longer than this (seconds) starts a new caption group early,
+    # so words don't appear on screen before they're actually said
+    max_group_gap = float(os.getenv("MAX_GROUP_GAP", "0.5"))
     # ASS \c override tag values (BGR hex, no alpha)
     highlight_color = os.getenv("HIGHLIGHT_COLOR", "&H00FFFF&")  # yellow
     text_color = os.getenv("TEXT_COLOR", "&HFFFFFF&")  # white

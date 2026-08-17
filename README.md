@@ -47,7 +47,16 @@ That's the only setting you need to change. Everything else in `.env` is optiona
 
 Double-click **`start.bat`** in this folder. That's it — it starts the app and opens it in your browser at `http://localhost:8001`.
 
-(You only need the manual command below if `start.bat` doesn't work for some reason: `.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001`, then open `http://localhost:8001` yourself.)
+**If `start.bat` doesn't work for some reason**, you can start it manually instead:
+1. Open this folder (`Kikis_Auto_Captions`) in File Explorer.
+2. Right-click empty space inside it and choose **"Open in Terminal"** (or "Open PowerShell window here").
+3. Paste this and press Enter:
+   ```
+   .venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001
+   ```
+4. Leave that window open (it's the running server), then open `http://localhost:8001` in your browser yourself.
+
+This only works if the terminal is open in *this exact folder* — `.venv\Scripts\python.exe` is a relative path to the folder that setup created, so running it from anywhere else will fail.
 
 ## Using it
 

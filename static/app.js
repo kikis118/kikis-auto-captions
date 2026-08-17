@@ -133,23 +133,60 @@ function placeDragHandle() {
   });
 })();
 
+function fmtClock(sec) {
+  sec = Math.floor(sec);
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function groupIntoSentences(words) {
+  const groups = [];
+  let current = [];
+  words.forEach((w, i) => {
+    current.push(i);
+    const endsSentence = /[.!?]["')\]]?$/.test(w.word);
+    const tooLong = current.length >= 18;
+    if (endsSentence || tooLong || i === words.length - 1) {
+      groups.push(current);
+      current = [];
+    }
+  });
+  return groups;
+}
+
 function renderTranscriptEditor(words) {
   transcriptWords = words;
   const container = document.getElementById("transcriptEditor");
   container.innerHTML = "";
-  words.forEach((w, i) => {
-    const span = document.createElement("span");
-    span.className = "transcript-word";
-    span.contentEditable = "true";
-    span.textContent = w.word;
-    span.addEventListener("blur", () => onWordEdited(i, span));
-    span.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        span.blur();
-      }
+
+  groupIntoSentences(words).forEach((indices) => {
+    const row = document.createElement("div");
+    row.className = "transcript-sentence";
+
+    const time = document.createElement("span");
+    time.className = "transcript-time";
+    time.textContent = fmtClock(words[indices[0]].start);
+    row.appendChild(time);
+
+    const wordsWrap = document.createElement("span");
+    wordsWrap.className = "transcript-sentence-words";
+    indices.forEach((i) => {
+      const span = document.createElement("span");
+      span.className = "transcript-word";
+      span.contentEditable = "true";
+      span.textContent = words[i].word;
+      span.addEventListener("blur", () => onWordEdited(i, span));
+      span.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          span.blur();
+        }
+      });
+      wordsWrap.appendChild(span);
     });
-    container.appendChild(span);
+    row.appendChild(wordsWrap);
+    container.appendChild(row);
   });
 }
 
@@ -174,7 +211,9 @@ async function burnCaptions() {
   if (!currentJobId) return;
   const btn = document.getElementById("burnBtn");
   btn.disabled = true;
-  document.getElementById("status").textContent = "Burning captions in...";
+  const burnStatus = document.getElementById("burnStatus");
+  burnStatus.textContent = "Starting...";
+  burnStatus.style.display = "flex";
 
   const res = await fetch(`/api/jobs/${currentJobId}/render`, {
     method: "POST",
@@ -184,6 +223,7 @@ async function burnCaptions() {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     document.getElementById("status").textContent = `Failed to start: ${err.detail || res.statusText}`;
+    burnStatus.style.display = "none";
     btn.disabled = false;
     return;
   }
@@ -245,6 +285,15 @@ async function poll() {
   document.getElementById("status").textContent = `Status: ${job.status}${elapsed}`;
   document.getElementById("log").textContent = job.log.join("\n");
   document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
+
+  const BURN_LABELS = { rendering: "Starting...", building_captions: "Building captions...", burning_in: "Burning into video..." };
+  const burnStatus = document.getElementById("burnStatus");
+  if (BURN_LABELS[job.status]) {
+    burnStatus.textContent = `${BURN_LABELS[job.status]}${elapsed}`;
+    burnStatus.style.display = "flex";
+  } else {
+    burnStatus.style.display = "none";
+  }
 
   if (job.status === "transcript_ready") {
     document.getElementById("transcribeBtn").disabled = false;

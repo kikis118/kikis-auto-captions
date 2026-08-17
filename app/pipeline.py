@@ -30,11 +30,9 @@ def load_cache(job_id: str) -> dict:
 
 
 def save_words(job_id: str, words: list) -> None:
-    job_dir = settings.data_dir / job_id
-    cache_path = words_cache_path(job_dir)
-    cache = json.loads(cache_path.read_text(encoding="utf-8"))
+    cache = load_cache(job_id)
     cache["words"] = words
-    cache_path.write_text(json.dumps(cache), encoding="utf-8")
+    words_cache_path(settings.data_dir / job_id).write_text(json.dumps(cache), encoding="utf-8")
 
 
 def transcribe_pipeline(job_id: str, video_path_str: str, log, set_progress):
@@ -88,7 +86,7 @@ def render_pipeline(
     render_words = [{**w, "word": w["word"].upper()} for w in words] if all_caps else words
     ass_content = ass_builder.build_ass(
         render_words, cache["width"], cache["height"], words_per_group, settings.highlight_color, settings.text_color,
-        font_name, pos_x_frac, pos_y_frac, font_size, letter_spacing or 0,
+        font_name, pos_x_frac, pos_y_frac, font_size, letter_spacing or 0, settings.max_group_gap,
     )
     ass_path = job_dir / "captions.ass"
     ass_path.write_text(ass_content, encoding="utf-8")
@@ -126,7 +124,7 @@ def generate_style_preview(
 
     ass_content = ass_builder.build_ass(
         render_sample, cache["width"], cache["height"], words_per_group, settings.highlight_color, settings.text_color,
-        font_name, pos_x_frac, pos_y_frac, font_size, letter_spacing or 0,
+        font_name, pos_x_frac, pos_y_frac, font_size, letter_spacing or 0, settings.max_group_gap,
     )
     ass_path = job_dir / "preview.ass"
     ass_path.write_text(ass_content, encoding="utf-8")

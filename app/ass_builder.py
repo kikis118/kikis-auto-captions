@@ -11,9 +11,24 @@ def _fmt_ass_time(seconds: float) -> str:
     return f"{h:d}:{m:02d}:{s:02d}.{cs:02d}"
 
 
+def _group_words(words, words_per_group, max_gap):
+    """Groups words for display, breaking early on a speech pause so words
+    don't appear on screen before they're actually said."""
+    groups = []
+    current = []
+    for w in words:
+        if current and (len(current) >= words_per_group or w["start"] - current[-1]["end"] > max_gap):
+            groups.append(current)
+            current = []
+        current.append(w)
+    if current:
+        groups.append(current)
+    return groups
+
+
 def build_ass(
     words, width, height, words_per_group, highlight_color, text_color,
-    font_name="Arial", pos_x_frac=0.5, pos_y_frac=0.85, font_size=None, letter_spacing=0,
+    font_name="Arial", pos_x_frac=0.5, pos_y_frac=0.85, font_size=None, letter_spacing=0, max_group_gap=0.5,
 ) -> str:
     font_size = font_size or max(28, int(height * 0.05))
     pos_x = int(width * pos_x_frac)
@@ -34,7 +49,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     pos_tag = f"{{\\an5\\pos({pos_x},{pos_y})}}"
 
-    groups = [words[i:i + words_per_group] for i in range(0, len(words), words_per_group)]
+    groups = _group_words(words, words_per_group, max_group_gap)
     lines = []
     for gi, group in enumerate(groups):
         # cap the last word's display end at the next group's start so two
