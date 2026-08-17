@@ -10,21 +10,54 @@
 <h1>Kikis Auto Captions</h1>
 
 <div class="card">
-  <p class="hint">Browse to your exported clip (e.g. from Premiere). Word-by-word highlighted captions get burned in and saved next to a preview here.</p>
+  <h2>1. Choose your clip</h2>
+  <p class="hint">Browse to your exported clip.</p>
   <div class="run-panel">
     <input id="videoPath" type="text" placeholder="C:\path\to\your\clip.mp4">
     <button id="browseBtn" type="button">Browse...</button>
-    <button id="runBtn">Run</button>
   </div>
 </div>
 
-<div id="status"></div>
-<pre id="log"></pre>
+<div class="card">
+  <h2>2. Style your captions</h2>
+  <p class="hint">The preview below updates live as you change these. Drag the sample caption to set where it sits on the video.</p>
+  <div class="style-panel">
+    <label>Font
+      <select id="fontSelect"></select>
+    </label>
+    <label>Words on screen
+      <input id="wordsPerGroup" type="number" min="1" max="10" value="4">
+    </label>
+    <label class="checkbox-label">
+      <input id="allCaps" type="checkbox" checked>
+      ALL CAPS
+    </label>
+    <button id="previewBtn" type="button" class="icon-btn">↻ Refresh preview</button>
+  </div>
+
+  <div id="previewWrap" class="preview-wrap" style="display:none">
+    <div id="previewFrame" class="preview-frame">
+      <img id="previewImg" alt="video frame">
+      <div id="captionBox" class="caption-box caps">sample caption <span class="hl">text</span></div>
+    </div>
+  </div>
+  <p id="previewHint" class="hint">Choose a clip above to see a live preview here.</p>
+</div>
+
+<div class="card">
+  <h2>3. Run</h2>
+  <p class="hint">Once the clip and style above look right, run it. This transcribes the clip and burns in the captions.</p>
+  <button id="runBtn">Run</button>
+  <div id="status"></div>
+  <pre id="log"></pre>
+</div>
 
 <div id="resultPanel" class="card" style="display:none">
   <h2>Result</h2>
   <p id="outputPath"></p>
   <video id="preview" controls style="max-width:100%; max-height:70vh; border-radius:8px;"></video>
+  <p class="hint">Not quite right? Tweak the style above and re-render — it reuses the transcript from this run, so it's much faster than starting over.</p>
+  <button id="rerenderBtn" type="button">Re-render with new style</button>
 </div>
 </div>
 

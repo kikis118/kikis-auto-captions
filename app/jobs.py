@@ -4,7 +4,7 @@ import traceback
 import uuid
 from datetime import datetime, timezone
 
-from .pipeline import run_pipeline
+from .pipeline import rerender_pipeline, run_pipeline
 
 JOBS: dict[str, dict] = {}
 _lock = threading.Lock()
@@ -12,12 +12,20 @@ _lock = threading.Lock()
 HEARTBEAT_INTERVAL = 30
 
 
-def create_job(video_path: str) -> str:
+def create_job(
+    video_path: str, font_name: str | None = None, words_per_group: int | None = None,
+    pos_x_frac: float | None = None, pos_y_frac: float | None = None, all_caps: bool | None = None,
+) -> str:
     job_id = uuid.uuid4().hex[:12]
     now = time.monotonic()
     job = {
         "id": job_id,
         "video_path": video_path,
+        "font_name": font_name,
+        "words_per_group": words_per_group,
+        "pos_x_frac": pos_x_frac,
+        "pos_y_frac": pos_y_frac,
+        "all_caps": all_caps,
         "status": "queued",
         "log": [],
         "result": None,
@@ -33,6 +41,21 @@ def create_job(video_path: str) -> str:
     return job_id
 
 
+def rerender_job(
+    job_id: str, font_name: str | None = None, words_per_group: int | None = None,
+    pos_x_frac: float | None = None, pos_y_frac: float | None = None, all_caps: bool | None = None,
+) -> bool:
+    job = JOBS.get(job_id)
+    if not job or job["status"] not in ("done", "error"):
+        return False
+    job["status"] = "rendering"
+    job["error"] = None
+    threading.Thread(
+        target=_rerun, args=(job_id, font_name, words_per_group, pos_x_frac, pos_y_frac, all_caps), daemon=True
+    ).start()
+    return True
+
+
 def _run(job_id: str) -> None:
     job = JOBS[job_id]
 
@@ -44,7 +67,31 @@ def _run(job_id: str) -> None:
         job["status"] = status
 
     try:
-        job["result"] = run_pipeline(job_id, job["video_path"], log, set_progress)
+        job["result"] = run_pipeline(
+            job_id, job["video_path"], log, set_progress,
+            job["font_name"], job["words_per_group"], job["pos_x_frac"], job["pos_y_frac"], job["all_caps"],
+        )
+        job["status"] = "done"
+    except Exception as e:
+        job["error"] = str(e)
+        job["status"] = "error"
+        log(f"ERROR: {e}\n{traceback.format_exc()}")
+
+
+def _rerun(job_id: str, font_name, words_per_group, pos_x_frac, pos_y_frac, all_caps) -> None:
+    job = JOBS[job_id]
+
+    def log(msg: str):
+        job["log"].append(msg)
+        job["_last_log_monotonic"] = time.monotonic()
+
+    def set_progress(status: str):
+        job["status"] = status
+
+    try:
+        job["result"] = rerender_pipeline(
+            job_id, log, set_progress, font_name, words_per_group, pos_x_frac, pos_y_frac, all_caps,
+        )
         job["status"] = "done"
     except Exception as e:
         job["error"] = str(e)

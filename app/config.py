@@ -19,6 +19,7 @@ class Settings:
     whisper_device = os.getenv("WHISPER_DEVICE", "cuda")
 
     words_per_group = int(os.getenv("WORDS_PER_GROUP", "4"))
+    all_caps = os.getenv("ALL_CAPS", "true").lower() in ("1", "true", "yes")
     # ASS \c override tag values (BGR hex, no alpha)
     highlight_color = os.getenv("HIGHLIGHT_COLOR", "&H00FFFF&")  # yellow
     text_color = os.getenv("TEXT_COLOR", "&HFFFFFF&")  # white
