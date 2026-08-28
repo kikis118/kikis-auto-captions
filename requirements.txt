@@ -1,6 +1,6 @@
-fastapi
-uvicorn[standard]
-faster-whisper
-python-dotenv
-nvidia-cublas-cu12
-nvidia-cudnn-cu12
+fastapi==0.141.1
+uvicorn[standard]==0.52.3
+faster-whisper==1.2.1
+python-dotenv==1.2.3
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cudnn-cu12==9.24.0.43

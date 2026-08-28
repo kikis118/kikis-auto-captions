@@ -6,12 +6,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 APP_DIR = Path(__file__).resolve().parent.parent
+TOOLS_DIR = APP_DIR.parent  # .../tools
 
 
 class Settings:
-    # bare "ffmpeg" relies on it being on your system PATH; set FFMPEG_PATH in .env
-    # to point at a specific ffmpeg.exe instead
-    ffmpeg_path = Path(os.getenv("FFMPEG_PATH", "ffmpeg"))
+    # Defaults to the shared ffmpeg.exe in tools/utilities/ffmpeg (same one Shorts
+    # Tool and Multicam Tool default to) rather than relying on system PATH; set
+    # FFMPEG_PATH in .env to point at a specific ffmpeg.exe instead
+    ffmpeg_path = Path(os.getenv("FFMPEG_PATH", TOOLS_DIR / "utilities" / "ffmpeg" / "ffmpeg.exe"))
     data_dir = Path(os.getenv("DATA_DIR", APP_DIR / "data"))
 
     whisper_model = os.getenv("WHISPER_MODEL", "large-v3")
