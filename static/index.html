@@ -97,6 +97,15 @@
     <button id="addSegmentBtn" type="button" class="icon-btn">+ Add segment</button>
   </div>
 
+  <div id="scrubPreviewWrap" class="preview-wrap">
+    <h3>Scrub the actual clip</h3>
+    <p class="hint">Play or drag through the real clip below. The caption shown is an approximate live overlay (not pixel-exact — trust the still preview and the real burn for exact look) that updates shortly after you pause or stop scrubbing, tracking whatever style/segment/chunk settings are currently set.</p>
+    <div id="scrubFrame" class="scrub-frame">
+      <video id="scrubVideo" controls preload="metadata"></video>
+      <div id="scrubCaption" class="scrub-caption" style="display:none"></div>
+    </div>
+  </div>
+
   <div id="previewWrap" class="preview-wrap">
     <div id="previewFrame" class="preview-frame">
       <img id="previewImg" alt="style preview">

@@ -208,3 +208,24 @@ hr { border: none; border-top: 1px solid #26262e; margin: 1rem 0; }
 .segment-color-field input[type="color"] { width: 32px; padding: 0.15rem; }
 
 #overlayResult a { color: #9cf; }
+
+#scrubPreviewWrap h3 { font-size: 0.95rem; margin: 0 0 0.3rem; color: #ccc; }
+
+.scrub-frame {
+  position: relative;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  line-height: 0;
+}
+.scrub-frame video { width: 100%; display: block; }
+
+.scrub-caption {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: normal;
+  text-align: center;
+  line-height: 1.15;
+  pointer-events: none;
+  max-width: 90%;
+}

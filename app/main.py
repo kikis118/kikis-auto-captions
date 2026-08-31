@@ -1,3 +1,4 @@
+import mimetypes
 import subprocess
 import sys
 from pathlib import Path
@@ -5,6 +6,7 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -113,6 +115,22 @@ async def api_fonts():
 def api_create_job(req: JobRequest):
     job_id = create_job(req.video_path)
     return {"job_id": job_id}
+
+
+@app.get("/api/jobs/{job_id}/source-video")
+def api_source_video(job_id: str):
+    """Serves the actual source clip so the style page can offer real HTML5 scrubbing -
+    Starlette's FileResponse handles Range requests natively, which is what makes
+    seeking in a large file responsive instead of downloading it all up front."""
+    try:
+        cache = pipeline.load_cache(job_id)
+    except RuntimeError as e:
+        raise HTTPException(404, str(e))
+    video_path = Path(cache["video_path"])
+    if not video_path.exists():
+        raise HTTPException(404, "Source video no longer exists")
+    media_type = mimetypes.guess_type(str(video_path))[0] or "video/mp4"
+    return FileResponse(video_path, media_type=media_type)
 
 
 @app.get("/api/jobs/{job_id}/words")

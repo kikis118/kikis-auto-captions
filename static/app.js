@@ -81,6 +81,8 @@ async function startTranscribeJob() {
   renderSegmentEditor();
   document.getElementById("overlayStatus").style.display = "none";
   document.getElementById("overlayResult").style.display = "none";
+  document.getElementById("scrubVideo").removeAttribute("src");
+  document.getElementById("scrubCaption").style.display = "none";
 
   const res = await fetch("/api/jobs", {
     method: "POST",
@@ -168,8 +170,17 @@ function onChunkModeChange() {
   document.getElementById("wordsPerGroupLabelText").textContent = dynamic ? "Max words on screen" : "Words on screen";
 }
 
+const SEGMENT_END_SENTINEL = 1e9; // last-resort fallback, only if neither the transcript nor the video duration is known yet
+
+function getClipEndSeconds() {
+  const video = document.getElementById("scrubVideo");
+  if (transcriptWords.length) return transcriptWords[transcriptWords.length - 1].end;
+  if (video && Number.isFinite(video.duration)) return video.duration;
+  return SEGMENT_END_SENTINEL;
+}
+
 function addSegment() {
-  styleSegments.push({ start: 0, end: 1, highlight_color: null, text_color: null, outline_color: null });
+  styleSegments.push({ start: 0, end: getClipEndSeconds(), highlight_color: null, text_color: null, outline_color: null });
   renderSegmentEditor();
 }
 
@@ -199,7 +210,10 @@ function renderSegmentEditor() {
     endInput.value = seg.end;
     endInput.title = "End (seconds)";
     endInput.addEventListener("input", () => {
-      seg.end = parseFloat(endInput.value) || 0;
+      const v = parseFloat(endInput.value);
+      // blank/garbage input means "till the end of the clip", not 0 - leaving it
+      // blank must never silently collapse the segment to an empty [start, 0) range
+      seg.end = Number.isFinite(v) ? v : getClipEndSeconds();
       debouncedSegmentPreview();
     });
     row.appendChild(endInput);
@@ -261,6 +275,7 @@ function debouncedSegmentPreview() {
 
 async function updateStylePreview() {
   saveStyleDefaults();
+  updateScrubOverlay();
   if (!currentJobId) return;
   const seq = ++previewRequestSeq;
   document.getElementById("previewLoading").style.display = "flex";
@@ -314,6 +329,141 @@ function fmtClock(sec) {
   const s = sec % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
 }
+
+// ---- Scrub preview: approximate caption overlay for the real <video> below ----
+// Mirrors app/ass_builder.py's _group_words / _group_words_dynamic / _find_segment
+// exactly (same conditions, same regex) so the overlay's grouping matches what the
+// server would actually burn. This is a deliberate duplication, not shared code -
+// it has to run client-side with no server round-trip to stay responsive. If the
+// grouping logic in ass_builder.py ever changes, mirror the change here too.
+const SCRUB_SENTENCE_END_RE = /[.!?]["')\]]?$/;
+
+function groupWordIndices(words, wordsPerGroup, maxGap) {
+  const groups = [];
+  let current = [];
+  words.forEach((w, i) => {
+    if (current.length && (current.length >= wordsPerGroup || w.start - words[current[current.length - 1]].end > maxGap)) {
+      groups.push(current);
+      current = [];
+    }
+    current.push(i);
+  });
+  if (current.length) groups.push(current);
+  return groups;
+}
+
+function groupWordIndicesDynamic(words, minWords, maxWords, maxGap) {
+  const groups = [];
+  let current = [];
+  words.forEach((w, i) => {
+    if (current.length && (w.start - words[current[current.length - 1]].end > maxGap)) {
+      groups.push(current);
+      current = [];
+    }
+    current.push(i);
+    const text = words[current[current.length - 1]].word;
+    if (current.length >= minWords) {
+      if (SCRUB_SENTENCE_END_RE.test(text)) {
+        groups.push(current);
+        current = [];
+      } else if (current.length >= maxWords) {
+        groups.push(current);
+        current = [];
+      } else if (text.endsWith(",") && current.length >= maxWords - 1) {
+        groups.push(current);
+        current = [];
+      }
+    }
+  });
+  if (current.length) groups.push(current);
+  return groups;
+}
+
+function findSegmentJs(t, segments) {
+  return (segments || []).find((s) => s.start <= t && t < s.end) || null;
+}
+
+function findActiveWordIndex(words, t) {
+  let idx = -1;
+  for (let i = 0; i < words.length; i++) {
+    if (words[i].start <= t) idx = i;
+    else break;
+  }
+  return idx;
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function updateScrubOverlay() {
+  const overlay = document.getElementById("scrubCaption");
+  const video = document.getElementById("scrubVideo");
+  if (!transcriptWords.length || !video.videoWidth) {
+    overlay.style.display = "none";
+    return;
+  }
+
+  const activeIdx = findActiveWordIndex(transcriptWords, video.currentTime);
+  if (activeIdx === -1) {
+    overlay.style.display = "none";
+    return;
+  }
+
+  const style = currentStylePayload();
+  const maxGap = 0.5; // matches the server's MAX_GROUP_GAP default - not exposed to the frontend
+  const groups = style.chunk_mode === "dynamic"
+    ? groupWordIndicesDynamic(transcriptWords, style.min_words_per_group || 2, style.words_per_group || 4, maxGap)
+    : groupWordIndices(transcriptWords, style.words_per_group || 4, maxGap);
+  const group = groups.find((g) => g.includes(activeIdx));
+  if (!group) {
+    overlay.style.display = "none";
+    return;
+  }
+
+  const seg = findSegmentJs(transcriptWords[activeIdx].start, style.style_segments);
+  const effHighlight = (seg && seg.highlight_color) || style.highlight_color;
+  const effText = (seg && seg.text_color) || style.text_color;
+  const effOutline = (seg && seg.outline_color) || style.outline_color;
+
+  overlay.innerHTML = group
+    .map((i) => {
+      let text = transcriptWords[i].word;
+      if (style.all_caps) text = text.toUpperCase();
+      text = escapeHtml(text);
+      const color = i === activeIdx ? effHighlight : effText;
+      return `<span style="color:${color}">${text}</span>`;
+    })
+    .join(" ");
+
+  const scale = video.getBoundingClientRect().width / video.videoWidth;
+  const nativeFontSize = style.font_size || Math.max(28, video.videoHeight * 0.05);
+  const outlineW = Math.max(1, (style.outline_width || 0) * scale);
+  overlay.style.left = `${style.pos_x_frac * 100}%`;
+  overlay.style.top = `${style.pos_y_frac * 100}%`;
+  overlay.style.fontFamily = style.font_name || "Arial";
+  overlay.style.fontSize = `${nativeFontSize * scale}px`;
+  overlay.style.fontWeight = style.bold ? "700" : "400";
+  overlay.style.letterSpacing = `${(style.letter_spacing || 0) * scale}px`;
+  overlay.style.textShadow = [-1, 1].flatMap((dx) => [-1, 1].map((dy) => `${dx * outlineW}px ${dy * outlineW}px 0 ${effOutline}`)).join(",");
+  overlay.style.display = "block";
+}
+
+let _scrubUpdateTimer = null;
+function debouncedScrubUpdate() {
+  clearTimeout(_scrubUpdateTimer);
+  _scrubUpdateTimer = setTimeout(updateScrubOverlay, 500);
+}
+
+(function setupScrubVideo() {
+  const video = document.getElementById("scrubVideo");
+  video.addEventListener("loadedmetadata", updateScrubOverlay);
+  video.addEventListener("seeked", debouncedScrubUpdate);
+  video.addEventListener("pause", updateScrubOverlay);
+  window.addEventListener("resize", updateScrubOverlay);
+})();
 
 function groupIntoSentences(words) {
   const groups = [];
@@ -474,6 +624,8 @@ async function revealPostTranscriptCards() {
   }
   placeDragHandle();
   updateStylePreview();
+
+  document.getElementById("scrubVideo").src = `/api/jobs/${currentJobId}/source-video`;
 }
 
 async function poll() {
