@@ -45,8 +45,17 @@
     <label>Letter spacing
       <input id="letterSpacing" type="number" min="-10" max="50" step="0.5" value="0">
     </label>
-    <label>Words on screen
+    <label><span id="wordsPerGroupLabelText">Words on screen</span>
       <input id="wordsPerGroup" type="number" min="1" max="10" value="4">
+    </label>
+    <label>Chunk mode
+      <select id="chunkMode">
+        <option value="fixed">Fixed</option>
+        <option value="dynamic">Dynamic</option>
+      </select>
+    </label>
+    <label id="minWordsLabel" style="display:none">Min words
+      <input id="minWordsPerGroup" type="number" min="1" max="10" value="2">
     </label>
     <label class="checkbox-label">
       <input id="allCaps" type="checkbox" checked>
@@ -71,6 +80,22 @@
       <input id="outlineWidth" type="number" min="0" max="20" value="4">
     </label>
   </div>
+  <div class="style-panel">
+    <label>Overlay canvas width
+      <input id="canvasWidth" type="number" min="16" max="8000" value="1080">
+    </label>
+    <label>Overlay canvas height
+      <input id="canvasHeight" type="number" min="16" max="8000" value="1920">
+    </label>
+  </div>
+  <p class="hint">Canvas size is only used for the transparent overlay export below — the burned-in video always renders at your source clip's real resolution.</p>
+
+  <div id="segmentEditorCard">
+    <h3>Per-segment style overrides (optional)</h3>
+    <p class="hint">E.g. a different highlight color for each speaker. Enter start/end in seconds — hover a word in the transcript above to see its timestamp. If ranges overlap, the earlier one wins. Segments are per-clip and reset when you start a new transcription.</p>
+    <div id="segmentEditor"></div>
+    <button id="addSegmentBtn" type="button" class="icon-btn">+ Add segment</button>
+  </div>
 
   <div id="previewWrap" class="preview-wrap">
     <div id="previewFrame" class="preview-frame">
@@ -85,6 +110,11 @@
   <h2>5. Burn captions in</h2>
   <button id="burnBtn">Burn captions in</button>
   <p id="burnStatus" class="burn-status" style="display:none"></p>
+  <hr>
+  <button id="exportOverlayBtn">Export Overlay (.mov, transparent background)</button>
+  <p class="hint">A separate captions-only clip with a transparent background, sized to the overlay canvas above — drop it on a track over your footage in Premiere instead of burning captions in.</p>
+  <p id="overlayStatus" class="burn-status" style="display:none"></p>
+  <p id="overlayResult" style="display:none"></p>
 </div>
 
 <div id="resultPanel" class="card" style="display:none">

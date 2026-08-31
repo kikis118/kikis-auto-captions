@@ -25,6 +25,25 @@ def burn_captions(video_path: Path, ass_path: Path, out_path: Path, log):
     log("Burn-in complete")
 
 
+def render_overlay(ass_path: Path, width: int, height: int, duration: float, out_path: Path, log):
+    """Renders the given .ass onto a transparent canvas and encodes it as ProRes 4444
+    with an alpha channel - a captions-only clip meant to be dropped on a track above
+    the real footage in an editor, instead of burning captions into the source video."""
+    args = [
+        str(settings.ffmpeg_path), "-y",
+        "-f", "lavfi", "-i", f"color=c=black@0.0:s={width}x{height}:d={duration}:r={settings.overlay_fps}",
+        "-vf", f"format=yuva444p10le,subtitles='{_ass_filter_arg(ass_path)}'",
+        "-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le",
+        str(out_path),
+    ]
+    log(f"$ {' '.join(args)}")
+    proc = subprocess.run(args, capture_output=True, text=True)
+    if proc.returncode != 0:
+        log(proc.stderr[-4000:])
+        raise RuntimeError("ffmpeg overlay export failed")
+    log("Overlay export complete")
+
+
 def burn_preview_frame(frame_path: Path, ass_path: Path) -> bytes:
     """Burns the given .ass onto a single still image and returns JPEG bytes -
     same subtitles filter as the real burn, so it's WYSIWYG with the final output."""

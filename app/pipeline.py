@@ -67,9 +67,23 @@ def _resolve_style(
     font_name=None, font_size=None, letter_spacing=None, words_per_group=None,
     pos_x_frac=None, pos_y_frac=None, all_caps=None,
     highlight_color=None, text_color=None, outline_color=None, outline_width=None, bold=None,
+    style_segments=None, chunk_mode=None, min_words_per_group=None,
 ) -> dict:
     """Turns request-level overrides (None = use the .env default) into concrete
     ass_builder.build_ass kwargs, including hex (#RRGGBB) -> ASS color conversion."""
+    resolved_segments = []
+    for seg in (style_segments or []):
+        resolved_segments.append({
+            "start": seg["start"],
+            "end": seg["end"],
+            # segment colors are always applied as inline override tags (\c, \3c), so they
+            # need tag-format colors, unlike the base outline_color below which is a Style-line field
+            "highlight_color": ass_builder.hex_to_tag_color(seg["highlight_color"]) if seg.get("highlight_color") else None,
+            "text_color": ass_builder.hex_to_tag_color(seg["text_color"]) if seg.get("text_color") else None,
+            "outline_color": ass_builder.hex_to_tag_color(seg["outline_color"]) if seg.get("outline_color") else None,
+        })
+    resolved_segments.sort(key=lambda s: s["start"])
+
     return {
         "font_name": font_name or "Arial",
         "font_size": font_size,
@@ -83,6 +97,9 @@ def _resolve_style(
         "outline_color": ass_builder.hex_to_style_color(outline_color) if outline_color else settings.outline_color,
         "outline_width": settings.outline_width if outline_width is None else outline_width,
         "bold": settings.bold if bold is None else bold,
+        "style_segments": resolved_segments,
+        "chunk_mode": chunk_mode or "fixed",
+        "min_words_per_group": min_words_per_group or 2,
     }
 
 
@@ -103,6 +120,7 @@ def render_pipeline(job_id: str, log, set_progress, **style_overrides):
         style["highlight_color"], style["text_color"], style["font_name"], style["pos_x_frac"], style["pos_y_frac"],
         style["font_size"], style["letter_spacing"], settings.max_group_gap,
         style["outline_color"], style["outline_width"], style["bold"],
+        style["style_segments"], style["chunk_mode"], style["min_words_per_group"],
     )
     ass_path = job_dir / "captions.ass"
     ass_path.write_text(ass_content, encoding="utf-8")
@@ -134,8 +152,41 @@ def generate_style_preview(job_id: str, **style_overrides) -> bytes:
         style["highlight_color"], style["text_color"], style["font_name"], style["pos_x_frac"], style["pos_y_frac"],
         style["font_size"], style["letter_spacing"], settings.max_group_gap,
         style["outline_color"], style["outline_width"], style["bold"],
+        style["style_segments"], style["chunk_mode"], style["min_words_per_group"],
     )
     ass_path = job_dir / "preview.ass"
     ass_path.write_text(ass_content, encoding="utf-8")
 
     return burn.burn_preview_frame(frame_path, ass_path)
+
+
+def render_overlay_pipeline(job_id: str, log, set_progress, canvas_width=None, canvas_height=None, **style_overrides):
+    """Renders a standalone transparent-background captions clip, sized to the given
+    canvas (NOT the source video's resolution - this export is deliberately independent
+    of the source clip, unlike render_pipeline/generate_style_preview above)."""
+    job_dir = settings.data_dir / job_id
+    cache = load_cache(job_id)
+    style = _resolve_style(**style_overrides)
+    width = canvas_width or 1080
+    height = canvas_height or 1920
+
+    words = cache["words"]
+    set_progress("building_captions")
+    render_words = [{**w, "word": w["word"].upper()} for w in words] if style["all_caps"] else words
+    ass_content = ass_builder.build_ass(
+        render_words, width, height, style["words_per_group"],
+        style["highlight_color"], style["text_color"], style["font_name"], style["pos_x_frac"], style["pos_y_frac"],
+        style["font_size"], style["letter_spacing"], settings.max_group_gap,
+        style["outline_color"], style["outline_width"], style["bold"],
+        style["style_segments"], style["chunk_mode"], style["min_words_per_group"],
+    )
+    ass_path = job_dir / "overlay.ass"
+    ass_path.write_text(ass_content, encoding="utf-8")
+    log(f"Wrote {ass_path.name} for {width}x{height} overlay canvas")
+
+    set_progress("exporting_overlay")
+    video_path = Path(cache["video_path"])
+    out_path = job_dir / f"{video_path.stem}_overlay.mov"
+    burn.render_overlay(ass_path, width, height, cache["duration"], out_path, log)
+
+    return {"overlay_output_path": str(out_path)}

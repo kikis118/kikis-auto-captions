@@ -4,7 +4,7 @@ import traceback
 import uuid
 from datetime import datetime, timezone
 
-from .pipeline import render_pipeline, transcribe_pipeline
+from .pipeline import render_overlay_pipeline, render_pipeline, transcribe_pipeline
 
 JOBS: dict[str, dict] = {}
 _lock = threading.Lock()
@@ -23,6 +23,9 @@ def create_job(video_path: str) -> str:
         "log": [],
         "result": None,
         "error": None,
+        "overlay_status": None,
+        "overlay_result": None,
+        "overlay_error": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "_started_monotonic": now,
         "_last_log_monotonic": now,
@@ -44,6 +47,35 @@ def render_job(job_id: str, **style_overrides) -> bool:
     threading.Thread(target=_run_render, args=(job_id,), kwargs=style_overrides, daemon=True).start()
     threading.Thread(target=_heartbeat, args=(job_id,), daemon=True).start()
     return True
+
+
+def render_overlay_job(job_id: str, **style_overrides) -> bool:
+    job = JOBS.get(job_id)
+    if not job or job["status"] not in _RENDERABLE_STATES:
+        return False
+    job["overlay_status"] = "building_captions"
+    job["overlay_error"] = None
+    threading.Thread(target=_run_render_overlay, args=(job_id,), kwargs=style_overrides, daemon=True).start()
+    return True
+
+
+def _run_render_overlay(job_id: str, **style_overrides) -> None:
+    job = JOBS[job_id]
+
+    def log(msg: str):
+        job["log"].append(msg)
+        job["_last_log_monotonic"] = time.monotonic()
+
+    def set_progress(status: str):
+        job["overlay_status"] = status
+
+    try:
+        job["overlay_result"] = render_overlay_pipeline(job_id, log, set_progress, **style_overrides)
+        job["overlay_status"] = "overlay_done"
+    except Exception as e:
+        job["overlay_error"] = str(e)
+        job["overlay_status"] = "error"
+        log(f"ERROR (overlay): {e}\n{traceback.format_exc()}")
 
 
 def _run_transcribe(job_id: str) -> None:

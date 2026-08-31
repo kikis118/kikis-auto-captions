@@ -1,6 +1,7 @@
 import subprocess
 import sys
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
@@ -9,7 +10,7 @@ from pydantic import BaseModel
 
 from . import pipeline
 from .config import settings
-from .jobs import create_job, get_elapsed_seconds, get_job, render_job
+from .jobs import create_job, get_elapsed_seconds, get_job, render_job, render_overlay_job
 
 app = FastAPI(title="Kikis Auto Captions")
 
@@ -62,6 +63,14 @@ class JobRequest(BaseModel):
     video_path: str
 
 
+class StyleSegment(BaseModel):
+    start: float
+    end: float
+    highlight_color: str | None = None
+    text_color: str | None = None
+    outline_color: str | None = None
+
+
 class RenderRequest(BaseModel):
     font_name: str | None = None
     font_size: int | None = None
@@ -75,6 +84,11 @@ class RenderRequest(BaseModel):
     outline_color: str | None = None
     outline_width: int | None = None
     bold: bool | None = None
+    style_segments: list[StyleSegment] | None = None
+    chunk_mode: Literal["fixed", "dynamic"] = "fixed"
+    min_words_per_group: int | None = None
+    canvas_width: int | None = None
+    canvas_height: int | None = None
 
 
 class WordsRequest(BaseModel):
@@ -119,9 +133,14 @@ def api_save_words(job_id: str, req: WordsRequest):
     return {"ok": True}
 
 
+_CANVAS_FIELDS = {"canvas_width", "canvas_height"}
+
+
 @app.post("/api/jobs/{job_id}/render")
 def api_render_job(job_id: str, req: RenderRequest):
-    ok = render_job(job_id, **req.model_dump())
+    # canvas_width/canvas_height only apply to the overlay export below - the burned-in
+    # video always uses the source clip's real resolution, so they're excluded here.
+    ok = render_job(job_id, **req.model_dump(exclude=_CANVAS_FIELDS))
     if not ok:
         raise HTTPException(400, "job not found, has no transcript yet, or is still running")
     return {"ok": True}
@@ -130,10 +149,20 @@ def api_render_job(job_id: str, req: RenderRequest):
 @app.post("/api/jobs/{job_id}/style-preview")
 async def api_style_preview(job_id: str, req: RenderRequest):
     try:
-        jpeg = await run_in_threadpool(pipeline.generate_style_preview, job_id, **req.model_dump())
+        jpeg = await run_in_threadpool(
+            pipeline.generate_style_preview, job_id, **req.model_dump(exclude=_CANVAS_FIELDS)
+        )
     except RuntimeError as e:
         raise HTTPException(400, str(e))
     return Response(content=jpeg, media_type="image/jpeg")
+
+
+@app.post("/api/jobs/{job_id}/export-overlay")
+def api_export_overlay(job_id: str, req: RenderRequest):
+    ok = render_overlay_job(job_id, **req.model_dump())
+    if not ok:
+        raise HTTPException(400, "job not found, has no transcript yet, or is still running")
+    return {"ok": True}
 
 
 @app.get("/api/jobs/{job_id}")
@@ -147,6 +176,9 @@ def api_get_job(job_id: str):
         "log": job["log"][-200:],
         "result": job["result"],
         "error": job["error"],
+        "overlay_status": job.get("overlay_status"),
+        "overlay_result": job.get("overlay_result"),
+        "overlay_error": job.get("overlay_error"),
         "elapsed_seconds": get_elapsed_seconds(job_id),
     }
 

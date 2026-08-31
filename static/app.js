@@ -4,10 +4,14 @@ let posYFrac = 0.85;
 let transcriptWords = [];
 let previewLoadedForJob = null;
 let previewRequestSeq = 0;
+let styleSegments = [];
 
 document.getElementById("browseBtn").addEventListener("click", browseNative);
 document.getElementById("transcribeBtn").addEventListener("click", startTranscribeJob);
 document.getElementById("burnBtn").addEventListener("click", burnCaptions);
+document.getElementById("exportOverlayBtn").addEventListener("click", exportOverlay);
+document.getElementById("chunkMode").addEventListener("change", onChunkModeChange);
+document.getElementById("addSegmentBtn").addEventListener("click", addSegment);
 
 document.getElementById("fontSelect").addEventListener("change", updateStylePreview);
 document.getElementById("allCaps").addEventListener("change", updateStylePreview);
@@ -15,12 +19,20 @@ document.getElementById("boldToggle").addEventListener("change", updateStylePrev
 debounceOnInput("fontSize");
 debounceOnInput("letterSpacing");
 debounceOnInput("wordsPerGroup");
+debounceOnInput("minWordsPerGroup");
 debounceOnInput("outlineWidth");
 debounceOnInput("highlightColor");
 debounceOnInput("textColor");
 debounceOnInput("outlineColor");
+debounceOnInput("canvasWidth");
+debounceOnInput("canvasHeight");
 
-loadFonts();
+init();
+
+async function init() {
+  await loadFonts();
+  applyStyleDefaults(loadStyleDefaults());
+}
 
 function debounceOnInput(id) {
   let timer = null;
@@ -65,6 +77,10 @@ async function startTranscribeJob() {
   document.getElementById("log").textContent = "";
   document.getElementById("status").textContent = "Starting...";
   previewLoadedForJob = null;
+  styleSegments = [];
+  renderSegmentEditor();
+  document.getElementById("overlayStatus").style.display = "none";
+  document.getElementById("overlayResult").style.display = "none";
 
   const res = await fetch("/api/jobs", {
     method: "POST",
@@ -80,6 +96,7 @@ function currentStylePayload() {
   const fontSize = parseInt(document.getElementById("fontSize").value, 10);
   const letterSpacing = parseFloat(document.getElementById("letterSpacing").value);
   const outlineWidth = parseInt(document.getElementById("outlineWidth").value, 10);
+  const minWordsPerGroup = parseInt(document.getElementById("minWordsPerGroup").value, 10);
   return {
     font_name: document.getElementById("fontSelect").value || null,
     font_size: Number.isFinite(fontSize) ? fontSize : null,
@@ -93,10 +110,157 @@ function currentStylePayload() {
     text_color: document.getElementById("textColor").value,
     outline_color: document.getElementById("outlineColor").value,
     outline_width: Number.isFinite(outlineWidth) ? outlineWidth : null,
+    chunk_mode: document.getElementById("chunkMode").value,
+    min_words_per_group: Number.isFinite(minWordsPerGroup) ? minWordsPerGroup : null,
+    style_segments: styleSegments.length ? styleSegments : null,
   };
 }
 
+const STYLE_DEFAULTS_KEY = "styleDefaults";
+
+function collectStyleDefaults() {
+  const { style_segments, ...rest } = currentStylePayload();
+  return {
+    ...rest,
+    canvas_width: parseInt(document.getElementById("canvasWidth").value, 10) || 1080,
+    canvas_height: parseInt(document.getElementById("canvasHeight").value, 10) || 1920,
+  };
+}
+
+function saveStyleDefaults() {
+  localStorage.setItem(STYLE_DEFAULTS_KEY, JSON.stringify(collectStyleDefaults()));
+}
+
+function loadStyleDefaults() {
+  try {
+    const raw = localStorage.getItem(STYLE_DEFAULTS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function applyStyleDefaults(d) {
+  if (!d) return;
+  if (d.font_name) document.getElementById("fontSelect").value = d.font_name;
+  if (d.font_size != null) document.getElementById("fontSize").value = d.font_size;
+  if (d.letter_spacing != null) document.getElementById("letterSpacing").value = d.letter_spacing;
+  if (d.words_per_group != null) document.getElementById("wordsPerGroup").value = d.words_per_group;
+  if (d.all_caps != null) document.getElementById("allCaps").checked = d.all_caps;
+  if (d.bold != null) document.getElementById("boldToggle").checked = d.bold;
+  if (d.highlight_color) document.getElementById("highlightColor").value = d.highlight_color;
+  if (d.text_color) document.getElementById("textColor").value = d.text_color;
+  if (d.outline_color) document.getElementById("outlineColor").value = d.outline_color;
+  if (d.outline_width != null) document.getElementById("outlineWidth").value = d.outline_width;
+  if (d.chunk_mode) document.getElementById("chunkMode").value = d.chunk_mode;
+  if (d.min_words_per_group != null) document.getElementById("minWordsPerGroup").value = d.min_words_per_group;
+  if (d.canvas_width != null) document.getElementById("canvasWidth").value = d.canvas_width;
+  if (d.canvas_height != null) document.getElementById("canvasHeight").value = d.canvas_height;
+  if (d.pos_x_frac != null) posXFrac = d.pos_x_frac;
+  if (d.pos_y_frac != null) posYFrac = d.pos_y_frac;
+  onChunkModeChange();
+  placeDragHandle();
+}
+
+function onChunkModeChange() {
+  const dynamic = document.getElementById("chunkMode").value === "dynamic";
+  document.getElementById("minWordsLabel").style.display = dynamic ? "flex" : "none";
+  document.getElementById("wordsPerGroupLabelText").textContent = dynamic ? "Max words on screen" : "Words on screen";
+}
+
+function addSegment() {
+  styleSegments.push({ start: 0, end: 1, highlight_color: null, text_color: null, outline_color: null });
+  renderSegmentEditor();
+}
+
+function renderSegmentEditor() {
+  const container = document.getElementById("segmentEditor");
+  container.innerHTML = "";
+  styleSegments.forEach((seg, idx) => {
+    const row = document.createElement("div");
+    row.className = "segment-row";
+
+    const startInput = document.createElement("input");
+    startInput.type = "number";
+    startInput.step = "0.1";
+    startInput.min = "0";
+    startInput.value = seg.start;
+    startInput.title = "Start (seconds)";
+    startInput.addEventListener("input", () => {
+      seg.start = parseFloat(startInput.value) || 0;
+      debouncedSegmentPreview();
+    });
+    row.appendChild(startInput);
+
+    const endInput = document.createElement("input");
+    endInput.type = "number";
+    endInput.step = "0.1";
+    endInput.min = "0";
+    endInput.value = seg.end;
+    endInput.title = "End (seconds)";
+    endInput.addEventListener("input", () => {
+      seg.end = parseFloat(endInput.value) || 0;
+      debouncedSegmentPreview();
+    });
+    row.appendChild(endInput);
+
+    [
+      ["highlight_color", "Highlight"],
+      ["text_color", "Text"],
+      ["outline_color", "Outline"],
+    ].forEach(([field, label]) => {
+      const wrap = document.createElement("label");
+      wrap.className = "checkbox-label segment-color-field";
+      wrap.title = label;
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = seg[field] != null;
+
+      const colorInput = document.createElement("input");
+      colorInput.type = "color";
+      colorInput.value = seg[field] || "#ffffff";
+      colorInput.disabled = seg[field] == null;
+
+      checkbox.addEventListener("change", () => {
+        seg[field] = checkbox.checked ? colorInput.value : null;
+        colorInput.disabled = !checkbox.checked;
+        debouncedSegmentPreview();
+      });
+      colorInput.addEventListener("input", () => {
+        if (checkbox.checked) {
+          seg[field] = colorInput.value;
+          debouncedSegmentPreview();
+        }
+      });
+
+      wrap.appendChild(checkbox);
+      wrap.appendChild(colorInput);
+      row.appendChild(wrap);
+    });
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.textContent = "Remove";
+    removeBtn.addEventListener("click", () => {
+      styleSegments.splice(idx, 1);
+      renderSegmentEditor();
+      updateStylePreview();
+    });
+    row.appendChild(removeBtn);
+
+    container.appendChild(row);
+  });
+}
+
+let _segmentPreviewTimer = null;
+function debouncedSegmentPreview() {
+  clearTimeout(_segmentPreviewTimer);
+  _segmentPreviewTimer = setTimeout(updateStylePreview, 400);
+}
+
 async function updateStylePreview() {
+  saveStyleDefaults();
   if (!currentJobId) return;
   const seq = ++previewRequestSeq;
   document.getElementById("previewLoading").style.display = "flex";
@@ -187,6 +351,7 @@ function renderTranscriptEditor(words) {
       span.className = "transcript-word";
       span.contentEditable = "true";
       span.textContent = words[i].word;
+      span.title = `${words[i].start.toFixed(1)}s`;
       span.addEventListener("blur", () => onWordEdited(i, span));
       span.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
@@ -235,6 +400,34 @@ async function burnCaptions() {
     const err = await res.json().catch(() => ({}));
     document.getElementById("status").textContent = `Failed to start: ${err.detail || res.statusText}`;
     burnStatus.style.display = "none";
+    btn.disabled = false;
+    return;
+  }
+  poll();
+}
+
+async function exportOverlay() {
+  if (!currentJobId) return;
+  const btn = document.getElementById("exportOverlayBtn");
+  btn.disabled = true;
+  const status = document.getElementById("overlayStatus");
+  status.textContent = "Starting...";
+  status.style.display = "flex";
+  document.getElementById("overlayResult").style.display = "none";
+
+  const payload = {
+    ...currentStylePayload(),
+    canvas_width: parseInt(document.getElementById("canvasWidth").value, 10) || 1080,
+    canvas_height: parseInt(document.getElementById("canvasHeight").value, 10) || 1920,
+  };
+  const res = await fetch(`/api/jobs/${currentJobId}/export-overlay`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    status.textContent = `Failed to start: ${err.detail || res.statusText}`;
     btn.disabled = false;
     return;
   }
@@ -310,23 +503,42 @@ async function poll() {
     document.getElementById("transcribeBtn").disabled = false;
     document.getElementById("burnBtn").disabled = false;
     revealPostTranscriptCards();
-    return;
-  }
-  if (job.status === "done") {
+  } else if (job.status === "done") {
     document.getElementById("transcribeBtn").disabled = false;
     document.getElementById("burnBtn").disabled = false;
     document.getElementById("burnBtn").textContent = "Re-render with new style";
     revealPostTranscriptCards();
     showResult(job.result);
-    return;
-  }
-  if (job.status === "error") {
+  } else if (job.status === "error") {
     document.getElementById("transcribeBtn").disabled = false;
     document.getElementById("burnBtn").disabled = false;
     document.getElementById("status").textContent = `Error: ${job.error}`;
-    return;
   }
-  setTimeout(poll, 3000);
+
+  const OVERLAY_BUILDING = ["building_captions", "exporting_overlay"];
+  const overlayStatus = document.getElementById("overlayStatus");
+  if (OVERLAY_BUILDING.includes(job.overlay_status)) {
+    overlayStatus.textContent = `${job.overlay_status}...${elapsed}`;
+    overlayStatus.style.display = "flex";
+  } else {
+    overlayStatus.style.display = "none";
+  }
+  if (job.overlay_status === "overlay_done") {
+    document.getElementById("exportOverlayBtn").disabled = false;
+    const p = job.overlay_result.overlay_output_path;
+    const filename = p.split(/[\\/]/).pop();
+    const el = document.getElementById("overlayResult");
+    el.innerHTML = `<a href="/output/${currentJobId}/${encodeURIComponent(filename)}" download>Download overlay (.mov)</a>`;
+    el.style.display = "block";
+  } else if (job.overlay_status === "error") {
+    document.getElementById("exportOverlayBtn").disabled = false;
+    overlayStatus.textContent = `Overlay error: ${job.overlay_error}`;
+    overlayStatus.style.display = "flex";
+  }
+
+  const mainDone = ["transcript_ready", "done", "error"].includes(job.status);
+  const overlayDone = [null, undefined, "overlay_done", "error"].includes(job.overlay_status);
+  if (!mainDone || !overlayDone) setTimeout(poll, 3000);
 }
 
 function showResult(result) {

@@ -189,3 +189,22 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 .transcript-word:hover { background: #1d1d24; }
 .transcript-word:focus { background: #23232b; border-color: #3b6fe0; }
+
+hr { border: none; border-top: 1px solid #26262e; margin: 1rem 0; }
+
+#segmentEditorCard { margin-top: 1.25rem; }
+#segmentEditorCard h3 { font-size: 0.95rem; margin: 0 0 0.3rem; color: #ccc; }
+
+.segment-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid #23232b;
+}
+.segment-row input[type="number"] { width: 70px; }
+.segment-color-field { gap: 0.3rem !important; }
+.segment-color-field input[type="color"] { width: 32px; padding: 0.15rem; }
+
+#overlayResult a { color: #9cf; }

@@ -32,6 +32,10 @@ class Settings:
     outline_width = int(os.getenv("OUTLINE_WIDTH", "4"))
     bold = os.getenv("BOLD", "true").lower() in ("1", "true", "yes")
 
+    # frame rate for the transparent overlay export - fixed rather than matched to the
+    # source video's fps, since ASS timing is centisecond text, not frame-locked
+    overlay_fps = int(os.getenv("OVERLAY_FPS", "30"))
+
 
 settings = Settings()
 settings.data_dir.mkdir(parents=True, exist_ok=True)
