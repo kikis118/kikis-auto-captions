@@ -18,6 +18,17 @@ app = FastAPI(title="Kikis Auto Captions")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
+
+@app.middleware("http")
+async def no_cache(request, call_next):
+    """StaticFiles sends no cache-busting headers by default - a browser (especially
+    when embedded in the Kikis Launcher's <iframe>) can keep serving a stale cached
+    copy of static/index.html or app.js indefinitely, surviving even a manual refresh.
+    Force no-store rather than chase that per-file."""
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 _PICKER_SCRIPT = """
 import tkinter
 from tkinter import filedialog
