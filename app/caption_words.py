@@ -4,11 +4,16 @@ from pathlib import Path
 
 from .config import settings
 
+# ctranslate2's lazy CUDA loader uses the classic LoadLibrary search order (honors PATH),
+# not the flags add_dll_directory() paths apply, so both are needed: with only
+# add_dll_directory the model constructs fine but the first GPU call throws
+# "Library cublas64_12.dll is not found" and trips the CPU fallback.
 if sys.platform == "win32":
     _site_packages = Path(__file__).resolve().parent.parent / ".venv" / "Lib" / "site-packages" / "nvidia"
     for _dll_dir in (_site_packages / "cublas" / "bin", _site_packages / "cudnn" / "bin"):
         if _dll_dir.is_dir():
             os.add_dll_directory(str(_dll_dir))
+            os.environ["PATH"] = str(_dll_dir) + os.pathsep + os.environ.get("PATH", "")
 
 _model = None
 _device = None

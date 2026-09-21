@@ -15,7 +15,7 @@ This was a deliberate decision, not an oversight: once a clip is cut/trimmed/reo
 
 ## Same GPU/CUDA pattern as Shorts Tool
 
-`app/caption_words.py` uses the identical `nvidia-cublas-cu12`/`nvidia-cudnn-cu12` + `os.add_dll_directory()` wiring and automatic CPU fallback as [Kikis Shorts Tool](../Kikis_Shorts_Tool)'s `app/transcribe.py` — see that project's `CLAUDE.md` for the full rationale if this breaks. The two implementations are independent copies (separate venvs), not shared code, so a fix in one does not propagate to the other automatically.
+`app/caption_words.py` uses the identical `nvidia-cublas-cu12`/`nvidia-cudnn-cu12` + `os.add_dll_directory()` wiring (including prepending the DLL dirs to `PATH` — `add_dll_directory()` alone isn't enough, the first GPU call still fails with "cublas64_12.dll not found" and silently drops to CPU) and automatic CPU fallback as [Kikis Shorts Tool](../Kikis_Shorts_Tool)'s `app/transcribe.py` — see that project's `CLAUDE.md` for the full rationale if this breaks. The two implementations are independent copies (separate venvs), not shared code, so a fix in one does not propagate to the other automatically.
 
 ## Caption styling is ASS override tags, not a real "highlight" renderer
 
