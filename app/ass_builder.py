@@ -34,10 +34,14 @@ def _fmt_ass_time(seconds: float) -> str:
 
 def _group_words(words, words_per_group, max_gap):
     """Groups words for display, breaking early on a speech pause so words
-    don't appear on screen before they're actually said."""
+    don't appear on screen before they're actually said, and never merging two
+    different speakers into one caption block."""
     groups = []
     current = []
     for w in words:
+        if current and w.get("speaker") != current[-1].get("speaker"):
+            groups.append(current)
+            current = []
         if current and (len(current) >= words_per_group or w["start"] - current[-1]["end"] > max_gap):
             groups.append(current)
             current = []
@@ -52,10 +56,14 @@ def _group_words_dynamic(words, min_words, max_words, max_gap):
     (once at least min_words have accumulated) over the max_words hard cap,
     and lets a trailing comma pull the cutoff in by one word. The pause-gap
     early-break is kept as-is, as a fallback for stretches with no
-    punctuation at all (faster-whisper doesn't always attach any)."""
+    punctuation at all (faster-whisper doesn't always attach any). A speaker
+    change always breaks the group first."""
     groups = []
     current = []
     for w in words:
+        if current and w.get("speaker") != current[-1].get("speaker"):
+            groups.append(current)
+            current = []
         if current and (w["start"] - current[-1]["end"] > max_gap):
             groups.append(current)
             current = []
@@ -85,10 +93,11 @@ def build_ass(
     font_name="Arial", pos_x_frac=0.5, pos_y_frac=0.85, font_size=None, letter_spacing=0, max_group_gap=0.5,
     outline_color="&H00000000", outline_width=4, bold=True,
     style_segments=None, chunk_mode="fixed", min_words_per_group=2,
+    speaker_styles=None,
 ) -> str:
     font_size = font_size or max(28, int(height * 0.05))
-    pos_x = int(width * pos_x_frac)
-    pos_y = int(height * pos_y_frac)
+    px_default = int(width * pos_x_frac)
+    py_default = int(height * pos_y_frac)
     bold_val = -1 if bold else 0
 
     header = f"""[Script Info]
@@ -104,14 +113,23 @@ Style: Default,{font_name},{font_size},&H00FFFFFF,&H000000FF,{outline_color},&H0
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    pos_tag = f"{{\\an5\\pos({pos_x},{pos_y})}}"
-
     if chunk_mode == "dynamic":
         groups = _group_words_dynamic(words, min_words_per_group, words_per_group, max_group_gap)
     else:
         groups = _group_words(words, words_per_group, max_group_gap)
     lines = []
     for gi, group in enumerate(groups):
+        # One block per speaker. A group never mixes speakers (the grouping helpers
+        # break on a speaker change), so taking the first word's speaker is safe.
+        speaker = group[0].get("speaker") or "A"
+        speaker_style = (speaker_styles or {}).get(speaker, {})
+        px = int(width * speaker_style.get("pos_x_frac", pos_x_frac)) if speaker_style.get("pos_x_frac") is not None else px_default
+        py = int(height * speaker_style.get("pos_y_frac", pos_y_frac)) if speaker_style.get("pos_y_frac") is not None else py_default
+        pos_tag = f"{{\\an5\\pos({px},{py})}}"
+        spk_highlight = speaker_style.get("highlight_color") or highlight_color
+        spk_text = speaker_style.get("text_color") or text_color
+        spk_outline = speaker_style.get("outline_color") or ""
+
         # cap the last word's display end at the next group's start so two
         # groups never render on screen at once during the handoff
         next_group_start = groups[gi + 1][0]["start"] if gi + 1 < len(groups) else None
@@ -126,9 +144,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     end = min(end, next_group_start)
 
             seg = _find_segment(w["start"], style_segments) if style_segments else None
-            eff_highlight = (seg or {}).get("highlight_color") or highlight_color
-            eff_text = (seg or {}).get("text_color") or text_color
-            outline_tag = f"{{\\3c{seg['outline_color']}}}" if seg and seg.get("outline_color") else ""
+            eff_highlight = (seg or {}).get("highlight_color") or spk_highlight
+            eff_text = (seg or {}).get("text_color") or spk_text
+            seg_outline = (seg or {}).get("outline_color") or spk_outline
+            outline_tag = f"{{\\3c{seg_outline}}}" if seg_outline else ""
 
             parts = []
             for j, gw in enumerate(group):

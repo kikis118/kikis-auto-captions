@@ -67,7 +67,7 @@ def _resolve_style(
     font_name=None, font_size=None, letter_spacing=None, words_per_group=None,
     pos_x_frac=None, pos_y_frac=None, all_caps=None,
     highlight_color=None, text_color=None, outline_color=None, outline_width=None, bold=None,
-    style_segments=None, chunk_mode=None, min_words_per_group=None,
+    style_segments=None, chunk_mode=None, min_words_per_group=None, speaker_styles=None,
 ) -> dict:
     """Turns request-level overrides (None = use the .env default) into concrete
     ass_builder.build_ass kwargs, including hex (#RRGGBB) -> ASS color conversion."""
@@ -83,6 +83,19 @@ def _resolve_style(
             "outline_color": ass_builder.hex_to_tag_color(seg["outline_color"]) if seg.get("outline_color") else None,
         })
     resolved_segments.sort(key=lambda s: s["start"])
+
+    resolved_speakers = {}
+    for spk in (speaker_styles or []):
+        sid = spk.get("id")
+        if not sid:
+            continue
+        resolved_speakers[sid] = {
+            "pos_x_frac": spk.get("pos_x_frac"),
+            "pos_y_frac": spk.get("pos_y_frac"),
+            "highlight_color": ass_builder.hex_to_tag_color(spk["highlight_color"]) if spk.get("highlight_color") else None,
+            "text_color": ass_builder.hex_to_tag_color(spk["text_color"]) if spk.get("text_color") else None,
+            "outline_color": ass_builder.hex_to_tag_color(spk["outline_color"]) if spk.get("outline_color") else None,
+        }
 
     return {
         "font_name": font_name or "Arial",
@@ -100,6 +113,7 @@ def _resolve_style(
         "style_segments": resolved_segments,
         "chunk_mode": chunk_mode or "fixed",
         "min_words_per_group": min_words_per_group or 2,
+        "speaker_styles": resolved_speakers,
     }
 
 
@@ -120,7 +134,7 @@ def render_pipeline(job_id: str, log, set_progress, **style_overrides):
         style["highlight_color"], style["text_color"], style["font_name"], style["pos_x_frac"], style["pos_y_frac"],
         style["font_size"], style["letter_spacing"], settings.max_group_gap,
         style["outline_color"], style["outline_width"], style["bold"],
-        style["style_segments"], style["chunk_mode"], style["min_words_per_group"],
+        style["style_segments"], style["chunk_mode"], style["min_words_per_group"], speaker_styles=style["speaker_styles"],
     )
     ass_path = job_dir / "captions.ass"
     ass_path.write_text(ass_content, encoding="utf-8")
@@ -152,12 +166,39 @@ def generate_style_preview(job_id: str, **style_overrides) -> bytes:
         style["highlight_color"], style["text_color"], style["font_name"], style["pos_x_frac"], style["pos_y_frac"],
         style["font_size"], style["letter_spacing"], settings.max_group_gap,
         style["outline_color"], style["outline_width"], style["bold"],
-        style["style_segments"], style["chunk_mode"], style["min_words_per_group"],
+        style["style_segments"], style["chunk_mode"], style["min_words_per_group"], speaker_styles=style["speaker_styles"],
     )
     ass_path = job_dir / "preview.ass"
     ass_path.write_text(ass_content, encoding="utf-8")
 
     return burn.burn_preview_frame(frame_path, ass_path)
+
+
+def build_ass_file(job_id: str, canvas_width=None, canvas_height=None, **style_overrides):
+    """Build the .ass for the given job/canvas and return its path, without rendering.
+
+    The AI Shorts pipeline burns this directly into its own composite: no opaque ProRes
+    intermediate, no second encode, and the exact same styling/speaker logic the manual
+    overlay export uses.
+    """
+    job_dir = settings.data_dir / job_id
+    cache = load_cache(job_id)
+    style = _resolve_style(**style_overrides)
+    width = int(canvas_width or cache["width"])
+    height = int(canvas_height or cache["height"])
+    words = cache["words"]
+    render_words = [{**w, "word": w["word"].upper()} for w in words] if style["all_caps"] else words
+    ass_content = ass_builder.build_ass(
+        render_words, width, height, style["words_per_group"],
+        style["highlight_color"], style["text_color"], style["font_name"], style["pos_x_frac"], style["pos_y_frac"],
+        style["font_size"], style["letter_spacing"], settings.max_group_gap,
+        style["outline_color"], style["outline_width"], style["bold"],
+        style["style_segments"], style["chunk_mode"], style["min_words_per_group"],
+        speaker_styles=style["speaker_styles"],
+    )
+    ass_path = job_dir / "ai_overlay.ass"
+    ass_path.write_text(ass_content, encoding="utf-8")
+    return ass_path
 
 
 def render_overlay_pipeline(job_id: str, log, set_progress, canvas_width=None, canvas_height=None, **style_overrides):
@@ -178,7 +219,7 @@ def render_overlay_pipeline(job_id: str, log, set_progress, canvas_width=None, c
         style["highlight_color"], style["text_color"], style["font_name"], style["pos_x_frac"], style["pos_y_frac"],
         style["font_size"], style["letter_spacing"], settings.max_group_gap,
         style["outline_color"], style["outline_width"], style["bold"],
-        style["style_segments"], style["chunk_mode"], style["min_words_per_group"],
+        style["style_segments"], style["chunk_mode"], style["min_words_per_group"], speaker_styles=style["speaker_styles"],
     )
     ass_path = job_dir / "overlay.ass"
     ass_path.write_text(ass_content, encoding="utf-8")

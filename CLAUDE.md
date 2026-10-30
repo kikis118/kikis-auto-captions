@@ -50,3 +50,29 @@ The frontend renders each cached word as an individually `contenteditable` span 
 ## ALL CAPS defaults on
 
 `settings.all_caps` (env `ALL_CAPS`) defaults to `true` — this was an explicit user preference, not an oversight. Uppercasing happens in `pipeline.render_pipeline`/`generate_style_preview` right before building the `.ass` (on a copy of the word list, not in the cached `words.json`), so toggling it doesn't require re-transcription either.
+
+## Speaker-aware words and styles (added 2026-10-30 for the AI Shorts pipeline)
+
+This is additive and must stay backwards-compatible: a `words[]` item may now carry an
+optional `speaker` (`"A"`/`"B"`), and `RenderRequest` may carry `speaker_styles`
+(`id`, `pos_x_frac`, `pos_y_frac`, `highlight_color`, `text_color`, `outline_color`).
+`ass_builder.build_ass(..., speaker_styles=...)` groups words per speaker (the grouping
+helpers break on a speaker change) and applies that speaker's `\pos`/colour per group.
+No speaker labels = exactly the old single-band output — verified with a regression
+check, keep it that way.
+
+`pipeline.build_ass_file(job_id, canvas_width, canvas_height, **style)` builds the `.ass`
+without rendering and returns its path. `POST /api/jobs/{id}/ass` exposes it as text for
+the AI Shorts pipeline, which burns it into its own 1080x1920 composite in one ffmpeg
+pass.
+
+**Do not use `export-overlay`'s ProRes file as an ffmpeg overlay.** Its alpha is fully
+opaque (verified on a real render: every pixel alpha=255), so compositing it blackens
+the whole frame and leaves only the captions. The `ass` endpoint is the supported path
+for external compositing. The overlay export is kept for editor workflows, but treat the
+transparency claim with suspicion unless it's been re-verified.
+
+**The caller owns timeline shifting.** Word timings (and the `.ass`) are local to the
+source file. If the caller trims with ffmpeg `-ss` before burning, it must subtract that
+offset from every `Dialogue` line first; Auto Captions does not know about the caller's
+trim.

@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -84,6 +84,18 @@ class StyleSegment(BaseModel):
     outline_color: str | None = None
 
 
+class SpeakerStyle(BaseModel):
+    """Optional per-speaker caption position/colour. Words carry an optional
+    `speaker` field; the AI Shorts pipeline adds them after diarization. Without
+    this, every existing single-speaker job behaves exactly as before."""
+    id: str
+    pos_x_frac: float | None = None
+    pos_y_frac: float | None = None
+    highlight_color: str | None = None
+    text_color: str | None = None
+    outline_color: str | None = None
+
+
 class RenderRequest(BaseModel):
     font_name: str | None = None
     font_size: int | None = None
@@ -98,6 +110,7 @@ class RenderRequest(BaseModel):
     outline_width: int | None = None
     bold: bool | None = None
     style_segments: list[StyleSegment] | None = None
+    speaker_styles: list[SpeakerStyle] | None = None
     chunk_mode: Literal["fixed", "dynamic"] = "fixed"
     min_words_per_group: int | None = None
     canvas_width: int | None = None
@@ -184,6 +197,22 @@ async def api_style_preview(job_id: str, req: RenderRequest):
     except RuntimeError as e:
         raise HTTPException(400, str(e))
     return Response(content=jpeg, media_type="image/jpeg")
+
+
+@app.post("/api/jobs/{job_id}/ass")
+def api_build_ass(job_id: str, req: RenderRequest):
+    """Build the .ass for an arbitrary canvas and return it as text. Used by the AI
+    Shorts pipeline to burn captions into its own 1080x1920 composite in one pass."""
+    try:
+        path = pipeline.build_ass_file(
+            job_id,
+            canvas_width=req.canvas_width,
+            canvas_height=req.canvas_height,
+            **req.model_dump(exclude=_CANVAS_FIELDS),
+        )
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+    return PlainTextResponse(path.read_text(encoding="utf-8"))
 
 
 @app.post("/api/jobs/{job_id}/export-overlay")

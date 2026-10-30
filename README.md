@@ -70,6 +70,23 @@ Not quite right? Change anything in step 3 or 4 and click **Re-render with new s
 
 Everything stays on your PC — no files, audio, or text are ever sent anywhere. The finished video (and a working folder for that job) is saved under `data/<job-id>/`.
 
+## Speaker-aware captions (used by Kikis Shorts Tool's AI pipeline)
+
+A `words[]` item can carry an optional `speaker` (`"A"` / `"B"`). The API also accepts
+`speaker_styles` — per-speaker `pos_x_frac`, `pos_y_frac`, and colours. Groups never mix
+speakers, so a two-person clip gets an A band near the top and a B band near the bottom.
+Clips without speaker labels behave exactly as before (one band at the normal position).
+
+`POST /api/jobs/{id}/ass` builds the `.ass` for an arbitrary canvas (e.g. 1080×1920) and
+returns it as text **without rendering**. The Shorts Tool uses this to burn captions
+into its own vertical composite in one ffmpeg pass.
+
+**Heads-up on the ProRes overlay export:** the transparent `.mov` produced by
+`export-overlay` comes back with a fully opaque alpha channel through ffmpeg's
+`subtitles` filter (verified: every pixel alpha=255), so compositing it over footage
+produces a black frame with only the captions visible. If you need screen-space captions
+outside this app, use the `.ass` endpoint instead of the ProRes file.
+
 ## How it works (for developers)
 
 | File | Responsibility |
