@@ -51,7 +51,11 @@ The frontend renders each cached word as an individually `contenteditable` span 
 
 `settings.all_caps` (env `ALL_CAPS`) defaults to `true` — this was an explicit user preference, not an oversight. Uppercasing happens in `pipeline.render_pipeline`/`generate_style_preview` right before building the `.ass` (on a copy of the word list, not in the cached `words.json`), so toggling it doesn't require re-transcription either.
 
-## Speaker-aware words and styles (added 2026-10-30 for the AI Shorts pipeline)
+## Speaker-aware words and styles (dormant since 2026-10-30)
+
+> Kikis Shorts Tool's AI pipeline scrapped dual-speaker captions after real testing;
+> nothing in the suite calls `speaker_styles` now. This API remains an independent Auto
+> Captions capability — don't delete it just because the AI tool stopped using it.
 
 This is additive and must stay backwards-compatible: a `words[]` item may now carry an
 optional `speaker` (`"A"`/`"B"`), and `RenderRequest` may carry `speaker_styles`
@@ -62,9 +66,10 @@ No speaker labels = exactly the old single-band output — verified with a regre
 check, keep it that way.
 
 `pipeline.build_ass_file(job_id, canvas_width, canvas_height, **style)` builds the `.ass`
-without rendering and returns its path. `POST /api/jobs/{id}/ass` exposes it as text for
-the AI Shorts pipeline, which burns it into its own 1080x1920 composite in one ffmpeg
-pass.
+without rendering and returns its path. `POST /api/jobs/{id}/ass` exposes it as text.
+The AI Shorts pipeline now builds its own local `.ass` instead (so transcript edits and
+position changes don't depend on this server's job state), but this endpoint remains a
+useful standalone capability.
 
 **Do not use `export-overlay`'s ProRes file as an ffmpeg overlay.** Its alpha is fully
 opaque (verified on a real render: every pixel alpha=255), so compositing it blackens

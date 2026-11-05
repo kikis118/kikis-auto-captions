@@ -70,7 +70,14 @@ Not quite right? Change anything in step 3 or 4 and click **Re-render with new s
 
 Everything stays on your PC — no files, audio, or text are ever sent anywhere. The finished video (and a working folder for that job) is saved under `data/<job-id>/`.
 
-## Speaker-aware captions (used by Kikis Shorts Tool's AI pipeline)
+## Speaker-aware captions (API only — the AI Shorts pipeline no longer uses this)
+
+> **Dormant:** Kikis Shorts Tool's AI pipeline scrapped dual-speaker captions on
+> 2026-10-30 because diarization was unreliable on mixed game/voice audio. The
+> `speaker_styles` API below still works for manual/experimental use, but nothing in the
+> suite calls it now. The AI tool builds its own ASS locally so captions stay editable
+> without depending on this server's job state; the `.ass` endpoint remains an
+> independent capability of Auto Captions.
 
 A `words[]` item can carry an optional `speaker` (`"A"` / `"B"`). The API also accepts
 `speaker_styles` — per-speaker `pos_x_frac`, `pos_y_frac`, and colours. Groups never mix
